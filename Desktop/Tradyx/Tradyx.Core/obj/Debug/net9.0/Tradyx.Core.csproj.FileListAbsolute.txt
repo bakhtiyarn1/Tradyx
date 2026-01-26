@@ -1,0 +1,13 @@
+/Users/mac/Desktop/Tradyx/Tradyx.Core/bin/Debug/net9.0/Tradyx.Core.deps.json
+/Users/mac/Desktop/Tradyx/Tradyx.Core/bin/Debug/net9.0/Tradyx.Core.dll
+/Users/mac/Desktop/Tradyx/Tradyx.Core/bin/Debug/net9.0/Tradyx.Core.pdb
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.csproj.AssemblyReference.cache
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.GeneratedMSBuildEditorConfig.editorconfig
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.AssemblyInfoInputs.cache
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.AssemblyInfo.cs
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.csproj.CoreCompileInputs.cache
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.sourcelink.json
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.dll
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/refint/Tradyx.Core.dll
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/Tradyx.Core.pdb
+/Users/mac/Desktop/Tradyx/Tradyx.Core/obj/Debug/net9.0/ref/Tradyx.Core.dll

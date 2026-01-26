@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "T7Sliy621fw=",
+  "success": true,
+  "projectFilePath": "/Users/mac/Desktop/Tradyx/Tradyx.Core/Tradyx.Core.csproj",
+  "expectedPackageFiles": [
+    "/Users/mac/.nuget/packages/bcrypt.net-next/4.0.3/bcrypt.net-next.4.0.3.nupkg.sha512",
+    "/Users/mac/.nuget/packages/dapper/2.1.66/dapper.2.1.66.nupkg.sha512",
+    "/Users/mac/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/9.0.0/microsoft.extensions.dependencyinjection.abstractions.9.0.0.nupkg.sha512",
+    "/Users/mac/.nuget/packages/microsoft.extensions.logging.abstractions/9.0.0/microsoft.extensions.logging.abstractions.9.0.0.nupkg.sha512",
+    "/Users/mac/.nuget/packages/npgsql/10.0.1/npgsql.10.0.1.nupkg.sha512"
+  ],
+  "logs": []
+}

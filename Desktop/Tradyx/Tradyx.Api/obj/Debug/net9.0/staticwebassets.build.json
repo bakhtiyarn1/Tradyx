@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Hash": "+yOeactQOIHBDg2j/VUJ+9L+UNIQeOgFsfrjrybfFeg=",
+  "Source": "Tradyx.Api",
+  "BasePath": "_content/Tradyx.Api",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": [],
+  "Endpoints": []
+}
