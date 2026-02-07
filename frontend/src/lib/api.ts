@@ -98,6 +98,10 @@ export const userApi = {
     const { data } = await api.post('/user/me/withdraw', { amount, walletAddress });
     return data;
   },
+  getMyTeam: async () => {
+    const { data } = await api.get('/user/me/team');
+    return data;
+  },
 };
 
 export const investmentApi = {
@@ -124,17 +128,46 @@ export const adminApi = {
 };
 
 // Types
-export interface User { id: string; username: string; email: string; balance: number; }
-export interface Dashboard { balance: number; activeInvestmentsAmount: number; totalEarned: number; todayProfit: number; todayReferralBonus: number; referralsCount: number; nextPayoutAt: string | null; }
+export interface User { id: string; username: string; email: string; balance: number; inviteCode?: string; }
+export interface RankProgress {
+  currentRank: number;
+  currentRankName: string;
+  nextRank: number | null;
+  nextRankName: string | null;
+  personalTurnover: number;
+  teamTurnover: number;
+  personalNeeded: number | null;
+  teamNeeded: number | null;
+  progress: number | null;
+  cashbackRate: number;
+}
+
+export interface Dashboard {
+  balance: number;
+  inviteCode: string;
+  activeInvestmentsAmount: number;
+  totalEarned: number;
+  todayProfit: number;
+  todayReferralBonus: number;
+  totalReferralEarned: number;
+  referralsCount: number;
+  nextPayoutAt: string | null;
+  rankProgress: RankProgress | null;
+}
 export interface Transaction { id: string; amount: number; type: string; description: string; createdAt: string; }
 export interface Investment { id: string; amount: number; dailyRate: number; createdAt: string; nextPayoutAt: string; isActive: boolean; }
 export interface Notification { id: string; message: string; isRead: boolean; createdAt: string; }
 export interface AdminStats { totalUsers: number; totalInvested: number; totalProfitPaid: number; totalReferralPaid: number; systemReserve: number; activeInvestmentsCount: number; generatedAt: string; }
 export interface AdminUser { id: string; username: string; email: string; balance: number; investmentsCount: number; totalInvested: number; totalEarned: number; referralsCount: number; createdAt: string; }
 export interface UserFullDetails {
-  profile: { id: string; username: string; email: string; balance: number; referrerId: string | null; referrerUsername: string | null; createdAt: string; };
+  profile: { id: string; username: string; email: string; balance: number; inviteCode: string; referrerId: string | null; referrerUsername: string | null; createdAt: string; };
   transactions: Transaction[];
   investments: Investment[];
   notifications: Notification[];
   referrals: { totalReferrals: number; referrals: Array<{ id: string; username: string; joinedAt: string }> };
 }
+
+// Referral team types
+export interface ReferralMember { id: string; username: string; joinedAt: string; level: number; totalEarned: number; }
+export interface ReferralTeamStats { totalMembers: number; level1Count: number; level2Count: number; level3Count: number; totalEarned: number; todayEarned: number; }
+export interface ReferralTeam { level1: ReferralMember[]; level2: ReferralMember[]; level3: ReferralMember[]; stats: ReferralTeamStats; }

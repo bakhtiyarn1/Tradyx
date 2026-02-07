@@ -1,16 +1,160 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wallet, TrendingUp, Users, Clock, ArrowUpRight, Zap, Target, Sparkles, Shield, Activity, X, DollarSign, CheckCircle2 } from 'lucide-react';
+import { Wallet, TrendingUp, Users, Clock, ArrowUpRight, Zap, Target, Sparkles, Shield, Activity, X, DollarSign, CheckCircle2, Crown, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { userApi } from '../lib/api';
-import type { Dashboard as DashboardData } from '../lib/api';
+import type { Dashboard as DashboardData, RankProgress } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import SlotMachineCounter from '../components/SlotMachineCounter';
 import Sparkline from '../components/Sparkline';
 import LiveTradingFeed from '../components/LiveTradingFeed';
 import { useSounds } from '../hooks/useSounds';
+import { useToast } from '../lib/toast';
 
 const genSparkline = (trend: 'up' | 'down' | 'neutral' = 'up') => { let v = 50; return Array.from({ length: 20 }, () => { v = Math.max(10, Math.min(90, v + (Math.random() - (trend === 'up' ? 0.4 : trend === 'down' ? 0.6 : 0.5)) * 10)); return v; }); };
+
+// === RANK CONFIG ===
+const RANK_CONFIG: Record<string, { color: string; gradient: string; icon: string; glow: string }> = {
+  Bronze:   { color: 'text-amber-600',    gradient: 'from-amber-700 to-amber-900',    icon: '🥉', glow: 'shadow-amber-700/20' },
+  Silver:   { color: 'text-gray-300',      gradient: 'from-gray-300 to-gray-500',      icon: '🥈', glow: 'shadow-gray-400/20' },
+  Gold:     { color: 'text-yellow-400',    gradient: 'from-yellow-400 to-amber-500',    icon: '🏆', glow: 'shadow-yellow-400/30' },
+  Platinum: { color: 'text-cyan-300',      gradient: 'from-cyan-300 to-blue-500',       icon: '💎', glow: 'shadow-cyan-400/40' },
+};
+
+function RankBadge({ rank, size = 'md' }: { rank: string; size?: 'sm' | 'md' | 'lg' }) {
+  const cfg = RANK_CONFIG[rank] || RANK_CONFIG.Bronze;
+  const sizeClasses = { sm: 'text-xs px-2 py-0.5 gap-1', md: 'text-sm px-3 py-1 gap-1.5', lg: 'text-base px-4 py-1.5 gap-2' };
+  return (
+    <span className={`inline-flex items-center font-bold rounded-full bg-gradient-to-r ${cfg.gradient} bg-opacity-20 ${cfg.color} ${sizeClasses[size]} shadow-lg ${cfg.glow}`}>
+      <span>{cfg.icon}</span>
+      <span>{rank}</span>
+    </span>
+  );
+}
+
+function RankProgressBar({ rankProgress }: { rankProgress: RankProgress }) {
+  const progress = rankProgress.progress ?? 1;
+  const pct = Math.round(progress * 100);
+  const cfg = RANK_CONFIG[rankProgress.currentRankName] || RANK_CONFIG.Bronze;
+  const nextCfg = rankProgress.nextRankName ? (RANK_CONFIG[rankProgress.nextRankName] || RANK_CONFIG.Silver) : null;
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Award className={`w-5 h-5 ${cfg.color}`} />
+          <span className="font-semibold text-white text-sm">Rank Progress</span>
+        </div>
+        <RankBadge rank={rankProgress.currentRankName} size="sm" />
+      </div>
+
+      {rankProgress.nextRankName ? (
+        <>
+          <div className="relative w-full h-3 rounded-full bg-white/5 overflow-hidden mb-3">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 1.2, ease: 'easeOut' }}
+              className={`absolute inset-y-0 left-0 rounded-full bg-gradient-to-r ${nextCfg?.gradient || cfg.gradient}`}
+            />
+            <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)', animation: 'shimmer 2s infinite' }} />
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span>{pct}% to {rankProgress.nextRankName}</span>
+            <span className="flex items-center gap-1">
+              {rankProgress.nextRankName && <span className="text-gray-500">{RANK_CONFIG[rankProgress.nextRankName]?.icon}</span>}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-white/5">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Personal invest</p>
+              <p className="text-sm font-bold text-white">${rankProgress.personalTurnover.toFixed(0)}</p>
+              {rankProgress.personalNeeded != null && rankProgress.personalNeeded > 0 && (
+                <p className="text-[10px] text-gray-500">${rankProgress.personalNeeded.toFixed(0)} needed</p>
+              )}
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Team turnover</p>
+              <p className="text-sm font-bold text-white">${rankProgress.teamTurnover.toFixed(0)}</p>
+              {rankProgress.teamNeeded != null && rankProgress.teamNeeded > 0 && (
+                <p className="text-[10px] text-gray-500">${rankProgress.teamNeeded.toFixed(0)} needed</p>
+              )}
+            </div>
+          </div>
+          {rankProgress.cashbackRate > 0 && (
+            <div className="mt-2 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <p className="text-xs text-yellow-400 font-medium">💎 Cashback: {(rankProgress.cashbackRate * 100).toFixed(0)}% on investments</p>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="text-center py-3">
+          <p className="text-sm text-gray-400">Maximum rank achieved!</p>
+          {rankProgress.cashbackRate > 0 && (
+            <p className="text-xs text-yellow-400 mt-1">💎 Cashback: {(rankProgress.cashbackRate * 100).toFixed(0)}% on investments</p>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// Rank-up celebration modal
+function RankUpModal({ rankName, onClose }: { rankName: string; onClose: () => void }) {
+  const cfg = RANK_CONFIG[rankName] || RANK_CONFIG.Bronze;
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <motion.div
+        initial={{ scale: 0.5, opacity: 0, rotate: -10 }}
+        animate={{ scale: 1, opacity: 1, rotate: 0 }}
+        exit={{ scale: 0.5, opacity: 0 }}
+        transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+        className="relative w-full max-w-sm glass p-8 text-center overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Celebration particles */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {Array.from({ length: 20 }).map((_, i) => (
+            <motion.div
+              key={i}
+              initial={{ y: '100%', x: `${Math.random() * 100}%`, opacity: 1 }}
+              animate={{ y: '-100%', opacity: 0 }}
+              transition={{ duration: 2 + Math.random() * 2, delay: Math.random() * 0.5, repeat: Infinity }}
+              className="absolute w-2 h-2 rounded-full"
+              style={{ background: `hsl(${Math.random() * 360}, 80%, 60%)` }}
+            />
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.2, type: 'spring', damping: 10 }}
+          className="text-7xl mb-4"
+        >
+          {cfg.icon}
+        </motion.div>
+
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }}>
+          <h2 className="text-2xl font-bold text-white mb-2">Congratulations!</h2>
+          <p className="text-gray-400 mb-4">Your rank has been upgraded to</p>
+          <div className="inline-block mb-6">
+            <RankBadge rank={rankName} size="lg" />
+          </div>
+          <p className="text-sm text-gray-500 mb-6">Your referral bonuses are now higher!</p>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onClose}
+            className={`px-8 py-3 rounded-xl font-bold text-black bg-gradient-to-r ${cfg.gradient} shadow-xl ${cfg.glow}`}
+          >
+            Awesome!
+          </motion.button>
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 function MarketPairs() {
   const [pairs, setPairs] = useState([
@@ -49,14 +193,12 @@ function GlowStatCard({ icon: Icon, label, value, subValue, color = 'emerald', d
   );
 }
 
-// Deposit Modal
 function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
   const { playCashRegister } = useSounds();
-
   const presets = [50, 100, 250, 500, 1000];
 
   const handleDeposit = async () => {
@@ -80,7 +222,6 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#00ff88]/20"><DollarSign className="w-5 h-5 text-[#00ff88]" /></div><h2 className="text-lg font-bold text-white">Deposit Funds</h2></div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10"><X className="w-5 h-5 text-gray-400" /></button>
         </div>
-
         {done ? (
           <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="text-center py-8">
             <CheckCircle2 className="w-16 h-16 text-[#00ff88] mx-auto mb-4" />
@@ -116,10 +257,12 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const toast = useToast();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [animBalance, setAnimBalance] = useState(0);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [rankUpName, setRankUpName] = useState<string | null>(null);
   const { playCashRegister } = useSounds();
   const prevBal = useRef<number>(0);
 
@@ -132,36 +275,41 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Initial load. Fallback poll every 60s (SignalR is primary).
   useEffect(() => {
     loadDashboard();
     const i = setInterval(loadDashboard, 60000);
     return () => clearInterval(i);
   }, [loadDashboard]);
 
-  // === SignalR: instant balance push ===
+  // SignalR: instant balance + dashboard refresh + rank upgrade
   useEffect(() => {
     const handleBalance = (e: Event) => {
       const newBalance = (e as CustomEvent).detail as number;
       setDashboard(prev => prev ? { ...prev, balance: newBalance } : prev);
     };
     const handleDashboardRefresh = () => loadDashboard();
+    const handleRankUp = (e: Event) => {
+      const { newRankName } = (e as CustomEvent).detail;
+      setRankUpName(newRankName);
+      toast.success(`🏆 Rank upgraded to ${newRankName}!`);
+      loadDashboard();
+    };
 
     window.addEventListener('signalr:balance', handleBalance);
     window.addEventListener('signalr:dashboard-refresh', handleDashboardRefresh);
+    window.addEventListener('signalr:rank-upgraded', handleRankUp);
     return () => {
       window.removeEventListener('signalr:balance', handleBalance);
       window.removeEventListener('signalr:dashboard-refresh', handleDashboardRefresh);
+      window.removeEventListener('signalr:rank-upgraded', handleRankUp);
     };
-  }, [loadDashboard]);
+  }, [loadDashboard, toast]);
 
-  // Sound on balance increase
   useEffect(() => {
     if (dashboard?.balance && prevBal.current > 0 && dashboard.balance > prevBal.current) playCashRegister();
     if (dashboard?.balance) prevBal.current = dashboard.balance;
   }, [dashboard?.balance]);
 
-  // Animated balance counter
   useEffect(() => {
     if (!dashboard?.balance) return;
     setAnimBalance(dashboard.balance);
@@ -174,11 +322,19 @@ export default function Dashboard() {
 
   if (isLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="w-16 h-16 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" /></div>;
 
+  const rp = dashboard?.rankProgress;
+
   return (
     <div className="space-y-6 relative">
       <div className="bg-animated" />
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div><h1 className="text-3xl font-bold text-white">Welcome, <span className="gradient-text">{user?.username}</span></h1><p className="text-gray-400 mt-1 flex items-center gap-2"><Shield className="w-4 h-4 text-primary-400" />Your portfolio is protected by AI</p></div>
+        <div>
+          <h1 className="text-3xl font-bold text-white flex items-center gap-3 flex-wrap">
+            Welcome, <span className="gradient-text">{user?.username}</span>
+            {rp && <RankBadge rank={rp.currentRankName} size="sm" />}
+          </h1>
+          <p className="text-gray-400 mt-1 flex items-center gap-2"><Shield className="w-4 h-4 text-primary-400" />Your portfolio is protected by AI</p>
+        </div>
         <div className="flex items-center gap-3">
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => setShowDeposit(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00ff88] to-primary-600 text-black font-semibold hover:shadow-[0_0_25px_rgba(0,255,136,0.3)] transition-all">
             <DollarSign className="w-4 h-4" /> Deposit
@@ -203,13 +359,18 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.div>
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}><LiveTradingFeed /></motion.div>
+
+        {/* Right column: Rank Progress + Live Trading */}
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }} className="space-y-4">
+          {rp && <RankProgressBar rankProgress={rp} />}
+          <LiveTradingFeed />
+        </motion.div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <GlowStatCard icon={Target} label="Active Deposits" value={`$${dashboard?.activeInvestmentsAmount?.toFixed(2) || '0.00'}`} subValue="Working 24/7" color="emerald" delay={0.3} />
         <GlowStatCard icon={TrendingUp} label="Today's Earnings" value={`+$${((dashboard?.todayProfit || 0) + (dashboard?.todayReferralBonus || 0)).toFixed(2)}`} subValue="Profit + Referral" color="blue" delay={0.4} />
-        <GlowStatCard icon={Users} label="Your Referrals" value={dashboard?.referralsCount?.toString() || '0'} subValue="10% passive income" color="purple" delay={0.5} />
+        <GlowStatCard icon={Users} label="Your Referrals" value={dashboard?.referralsCount?.toString() || '0'} subValue={rp ? `${rp.currentRankName} bonuses active` : '10% passive income'} color="purple" delay={0.5} />
         <GlowStatCard icon={Sparkles} label="Referral Bonus" value={`+$${dashboard?.todayReferralBonus?.toFixed(2) || '0.00'}`} subValue="Today's bonus" color="amber" delay={0.6} />
       </div>
 
@@ -229,7 +390,10 @@ export default function Dashboard() {
         </motion.div>
       </div>
 
-      <AnimatePresence>{showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onSuccess={loadDashboard} />}</AnimatePresence>
+      <AnimatePresence>
+        {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onSuccess={loadDashboard} />}
+        {rankUpName && <RankUpModal rankName={rankUpName} onClose={() => setRankUpName(null)} />}
+      </AnimatePresence>
     </div>
   );
 }

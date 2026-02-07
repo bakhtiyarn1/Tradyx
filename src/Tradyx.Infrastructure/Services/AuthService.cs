@@ -41,12 +41,22 @@ public class AuthService : IAuthService
             if (existingUsername != null)
                 return AuthResponse.Fail("Username already taken");
 
-            // Resolve referrer
-            Guid? referrerId = null;
+            // Resolve referrer by invite code (or username for backward compat)
+            User? referrer = null;
             if (!string.IsNullOrEmpty(request.ReferrerCode))
             {
-                var referrer = await _userRepository.GetByUsernameAsync(request.ReferrerCode, cancellationToken);
-                referrerId = referrer?.Id;
+                // Try invite code first, then username as fallback
+                referrer = await _userRepository.GetByInviteCodeAsync(request.ReferrerCode, cancellationToken)
+                        ?? await _userRepository.GetByUsernameAsync(request.ReferrerCode, cancellationToken);
+            }
+
+            // Build referral path: parent's path + parent's id
+            string? referralPath = null;
+            if (referrer != null)
+            {
+                referralPath = string.IsNullOrEmpty(referrer.ReferralPath)
+                    ? referrer.Id.ToString()
+                    : $"{referrer.ReferralPath}/{referrer.Id}";
             }
 
             var user = new User
@@ -56,12 +66,19 @@ public class AuthService : IAuthService
                 Email = request.Email,
                 PasswordHash = _passwordHasher.Hash(request.Password),
                 Balance = 0,
-                ReferrerId = referrerId,
+                ReferrerId = referrer?.Id,
+                InviteCode = User.GenerateInviteCode(),
+                ReferralPath = referralPath,
                 CreatedAt = DateTime.UtcNow
             };
 
+            // Prevent self-referral (defensive)
+            if (user.ReferrerId == user.Id)
+                user.ReferrerId = null;
+
             await _userRepository.CreateAsync(user, cancellationToken);
-            _logger.LogInformation("[Auth] Registered user {Username} ({Email})", user.Username, user.Email);
+            _logger.LogInformation("[Auth] Registered user {Username} ({Email}), invite={InviteCode}, referrer={ReferrerId}",
+                user.Username, user.Email, user.InviteCode, user.ReferrerId);
 
             var token = GenerateJwtToken(user);
             return AuthResponse.Ok(token, new AuthUserDto

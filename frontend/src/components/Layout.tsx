@@ -150,6 +150,10 @@ function SignalRProvider() {
       window.dispatchEvent(new CustomEvent('signalr:transaction', { detail: { type, amount } }));
       window.dispatchEvent(new Event('signalr:dashboard-refresh'));
     },
+    onStatusUpgraded: (_oldRank, _newRank, newRankName) => {
+      window.dispatchEvent(new CustomEvent('signalr:rank-upgraded', { detail: { newRankName } }));
+      window.dispatchEvent(new Event('signalr:dashboard-refresh'));
+    },
   });
 
   return null; // no UI

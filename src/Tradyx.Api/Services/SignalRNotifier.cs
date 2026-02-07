@@ -4,10 +4,6 @@ using Tradyx.Core.Interfaces;
 
 namespace Tradyx.Api.Services;
 
-/// <summary>
-/// Sends real-time events to connected users via SignalR.
-/// Injected as IRealtimeNotifier anywhere in the system.
-/// </summary>
 public class SignalRNotifier : IRealtimeNotifier
 {
     private readonly IHubContext<NotificationHub, IRealtimeClient> _hub;
@@ -46,5 +42,11 @@ public class SignalRNotifier : IRealtimeNotifier
     public async Task NotifyTransactionCreated(Guid userId, string type, decimal amount)
     {
         await _hub.Clients.User(userId.ToString()).TransactionCreated(type, amount);
+    }
+
+    public async Task NotifyStatusUpgraded(Guid userId, int oldRank, int newRank, string newRankName)
+    {
+        _logger.LogInformation("[SignalR] StatusUpgraded -> {UserId}: {Old} → {New}", userId, oldRank, newRank);
+        await _hub.Clients.User(userId.ToString()).StatusUpgraded(oldRank, newRank, newRankName);
     }
 }

@@ -11,4 +11,5 @@ public interface IRealtimeNotifier
     Task NotifyNewNotification(Guid userId, string message);
     Task NotifyInvestmentUpdated(Guid userId);
     Task NotifyTransactionCreated(Guid userId, string type, decimal amount);
+    Task NotifyStatusUpgraded(Guid userId, int oldRank, int newRank, string newRankName);
 }

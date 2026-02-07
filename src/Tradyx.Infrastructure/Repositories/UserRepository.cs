@@ -38,11 +38,18 @@ public class UserRepository : IUserRepository
         return await connection.QuerySingleOrDefaultAsync<User>(sql, new { Username = username });
     }
 
+    public async Task<User?> GetByInviteCodeAsync(string inviteCode, CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT * FROM users WHERE UPPER(invite_code) = UPPER(@InviteCode) AND invite_code != ''";
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<User>(sql, new { InviteCode = inviteCode });
+    }
+
     public async Task<User> CreateAsync(User user, CancellationToken cancellationToken = default)
     {
         const string sql = @"
-            INSERT INTO users (id, username, email, password_hash, balance, referrer_id, created_at)
-            VALUES (@Id, @Username, @Email, @PasswordHash, @Balance, @ReferrerId, @CreatedAt)
+            INSERT INTO users (id, username, email, password_hash, balance, referrer_id, invite_code, referral_path, created_at)
+            VALUES (@Id, @Username, @Email, @PasswordHash, @Balance, @ReferrerId, @InviteCode, @ReferralPath, @CreatedAt)
             RETURNING *";
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         return await connection.QuerySingleAsync<User>(sql, user);
@@ -53,16 +60,18 @@ public class UserRepository : IUserRepository
         const string sql = @"
             SELECT
                 u.balance,
+                u.invite_code,
                 (SELECT COALESCE(SUM(amount), 0) FROM investments WHERE user_id = @UserId AND is_active = true) AS active_investments_amount,
                 (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = @UserId AND type = 'Profit') AS total_earned,
                 (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = @UserId AND type = 'Profit'
                     AND created_at >= CURRENT_DATE) AS today_profit,
                 (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = @UserId AND type = 'ReferralBonus'
                     AND created_at >= CURRENT_DATE) AS today_referral_bonus,
+                (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = @UserId AND type = 'ReferralBonus') AS total_referral_earned,
                 (SELECT COUNT(*) FROM users WHERE referrer_id = @UserId) AS referrals_count,
                 (SELECT MIN(next_payout_at) FROM investments WHERE user_id = @UserId AND is_active = true) AS next_payout_at
             FROM users u WHERE u.id = @UserId";
-        
+
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<UserDashboardResponse>(sql, new { UserId = userId });
     }

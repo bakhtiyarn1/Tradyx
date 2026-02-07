@@ -8,13 +8,9 @@ export interface SignalRCallbacks {
   onNotificationReceived?: (message: string) => void;
   onInvestmentUpdated?: () => void;
   onTransactionCreated?: (type: string, amount: number) => void;
+  onStatusUpgraded?: (oldRank: number, newRank: number, newRankName: string) => void;
 }
 
-/**
- * React hook that manages the SignalR lifecycle.
- * Starts/stops the connection based on auth state.
- * Subscribes to strongly-typed hub events.
- */
 export function useSignalR(callbacks: SignalRCallbacks = {}) {
   const { user } = useAuth();
   const cbRef = useRef(callbacks);
@@ -22,31 +18,26 @@ export function useSignalR(callbacks: SignalRCallbacks = {}) {
 
   useEffect(() => {
     if (!user) return;
-
     const token = localStorage.getItem('tradyx_token');
     if (!token) return;
 
     const conn = getConnection();
 
-    // Register event handlers
     const handlers = {
       BalanceUpdated: (newBalance: number) => cbRef.current.onBalanceUpdated?.(newBalance),
       PayoutReceived: (amount: number, description: string) => cbRef.current.onPayoutReceived?.(amount, description),
       NotificationReceived: (message: string) => cbRef.current.onNotificationReceived?.(message),
       InvestmentUpdated: () => cbRef.current.onInvestmentUpdated?.(),
       TransactionCreated: (type: string, amount: number) => cbRef.current.onTransactionCreated?.(type, amount),
+      StatusUpgraded: (oldRank: number, newRank: number, newRankName: string) => cbRef.current.onStatusUpgraded?.(oldRank, newRank, newRankName),
     };
 
-    // Clear any existing handlers to avoid duplicates on re-renders
     Object.keys(handlers).forEach(event => conn.off(event));
     Object.entries(handlers).forEach(([event, handler]) => conn.on(event, handler));
 
-    // Connect
     startConnection();
 
     return () => {
-      // Don't disconnect on unmount if other components share the connection,
-      // but do clean up our handlers
       Object.keys(handlers).forEach(event => conn.off(event));
     };
   }, [user]);

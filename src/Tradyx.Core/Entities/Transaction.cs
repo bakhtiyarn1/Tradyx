@@ -17,6 +17,7 @@ public class Transaction
         public const string Profit = "Profit";
         public const string ReferralBonus = "ReferralBonus";
         public const string ManualAdjustment = "ManualAdjustment";
+        public const string Cashback = "Cashback";
     }
 
     public static Transaction Create(Guid userId, decimal amount, string type, string description)

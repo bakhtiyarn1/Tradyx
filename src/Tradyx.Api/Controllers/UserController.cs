@@ -15,6 +15,8 @@ public class UserController : ControllerBase
     private readonly IUserRepository _userRepository;
     private readonly ITransactionRepository _transactionRepository;
     private readonly INotificationRepository _notificationRepository;
+    private readonly IReferralService _referralService;
+    private readonly IRankService _rankService;
     private readonly IRealtimeNotifier _realtime;
     private readonly ILogger<UserController> _logger;
 
@@ -22,12 +24,16 @@ public class UserController : ControllerBase
         IUserRepository userRepository,
         ITransactionRepository transactionRepository,
         INotificationRepository notificationRepository,
+        IReferralService referralService,
+        IRankService rankService,
         IRealtimeNotifier realtime,
         ILogger<UserController> logger)
     {
         _userRepository = userRepository;
         _transactionRepository = transactionRepository;
         _notificationRepository = notificationRepository;
+        _referralService = referralService;
+        _rankService = rankService;
         _realtime = realtime;
         _logger = logger;
     }
@@ -46,7 +52,7 @@ public class UserController : ControllerBase
             return Ok(new UserProfileResponse
             {
                 Id = user.Id, Username = user.Username, Email = user.Email,
-                Balance = user.Balance, CreatedAt = user.CreatedAt
+                Balance = user.Balance, InviteCode = user.InviteCode, CreatedAt = user.CreatedAt
             });
         }
         catch (Exception ex)
@@ -94,7 +100,12 @@ public class UserController : ControllerBase
         {
             var dashboard = await _userRepository.GetDashboardAsync(userId.Value, cancellationToken);
             if (dashboard == null) return NotFound(new { Message = "User not found" });
-            return Ok(dashboard);
+
+            // Enrich with rank progress
+            var rankProgress = await _rankService.GetRankProgressAsync(userId.Value, cancellationToken);
+            var enriched = dashboard with { RankProgress = rankProgress };
+
+            return Ok(enriched);
         }
         catch (Exception ex)
         {
@@ -262,6 +273,24 @@ public class UserController : ControllerBase
         }
     }
 
+    [HttpGet("me/team")]
+    public async Task<IActionResult> GetMyTeam(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
+
+        try
+        {
+            var team = await _referralService.GetMyTeamAsync(userId.Value, cancellationToken);
+            return Ok(team);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error fetching team for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load team" });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -271,7 +300,7 @@ public class UserController : ControllerBase
     }
 }
 
-public record UserProfileResponse { public Guid Id { get; init; } public string Username { get; init; } = string.Empty; public string Email { get; init; } = string.Empty; public decimal Balance { get; init; } public DateTime CreatedAt { get; init; } }
+public record UserProfileResponse { public Guid Id { get; init; } public string Username { get; init; } = string.Empty; public string Email { get; init; } = string.Empty; public decimal Balance { get; init; } public string InviteCode { get; init; } = string.Empty; public DateTime CreatedAt { get; init; } }
 public record TransactionResponse { public Guid Id { get; init; } public decimal Amount { get; init; } public string Type { get; init; } = string.Empty; public string Description { get; init; } = string.Empty; public DateTime CreatedAt { get; init; } }
 public record NotificationsResponse { public int UnreadCount { get; init; } public List<NotificationDto> Notifications { get; init; } = new(); }
 public record NotificationDto { public Guid Id { get; init; } public string Message { get; init; } = string.Empty; public bool IsRead { get; init; } public DateTime CreatedAt { get; init; } }

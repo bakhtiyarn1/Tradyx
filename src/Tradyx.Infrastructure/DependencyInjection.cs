@@ -34,6 +34,8 @@ public static class DependencyInjection
         // Services
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IInvestmentService, InvestmentService>();
+        services.AddScoped<IRankService, RankService>();
+        services.AddScoped<IReferralService, ReferralService>();
         services.AddScoped<IPayoutService, PayoutService>();
 
         // Background Services
