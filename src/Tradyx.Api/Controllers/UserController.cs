@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Tradyx.Core.DTOs.User;
-using Tradyx.Core.Entities;
 using Tradyx.Core.Interfaces;
 
 namespace Tradyx.Api.Controllers;
@@ -16,242 +15,253 @@ public class UserController : ControllerBase
     private readonly IUserRepository _userRepository;
     private readonly ITransactionRepository _transactionRepository;
     private readonly INotificationRepository _notificationRepository;
+    private readonly IRealtimeNotifier _realtime;
     private readonly ILogger<UserController> _logger;
 
     public UserController(
         IUserRepository userRepository,
         ITransactionRepository transactionRepository,
         INotificationRepository notificationRepository,
+        IRealtimeNotifier realtime,
         ILogger<UserController> logger)
     {
         _userRepository = userRepository;
         _transactionRepository = transactionRepository;
         _notificationRepository = notificationRepository;
+        _realtime = realtime;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Gets current user's profile (from JWT token).
-    /// </summary>
     [HttpGet("me")]
-    [ProducesResponseType(typeof(UserProfileResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMyProfile(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
-        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
-        if (user == null)
-            return NotFound(new { Message = "User not found" });
-
-        return Ok(new UserProfileResponse
+        try
         {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            Balance = user.Balance,
-            CreatedAt = user.CreatedAt
-        });
+            var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+            if (user == null) return NotFound(new { Message = "User not found" });
+
+            return Ok(new UserProfileResponse
+            {
+                Id = user.Id, Username = user.Username, Email = user.Email,
+                Balance = user.Balance, CreatedAt = user.CreatedAt
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error fetching profile for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load profile" });
+        }
     }
 
-    /// <summary>
-    /// Gets current user's transaction history.
-    /// </summary>
     [HttpGet("me/transactions")]
-    [ProducesResponseType(typeof(IEnumerable<TransactionResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyTransactions(
-        [FromQuery] int skip = 0,
-        [FromQuery] int take = 50,
+        [FromQuery] int skip = 0, [FromQuery] int take = 50,
         CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
-        var transactions = await _transactionRepository.GetByUserIdAsync(userId.Value, skip, take, cancellationToken);
+        skip = Math.Max(0, skip);
+        take = Math.Min(Math.Max(1, take), 200);
 
-        var response = transactions.Select(t => new TransactionResponse
+        try
         {
-            Id = t.Id,
-            Amount = t.Amount,
-            Type = t.Type,
-            Description = t.Description,
-            CreatedAt = t.CreatedAt
-        });
-
-        return Ok(response);
+            var transactions = await _transactionRepository.GetByUserIdAsync(userId.Value, skip, take, cancellationToken);
+            var response = transactions.Select(t => new TransactionResponse
+            {
+                Id = t.Id, Amount = t.Amount, Type = t.Type,
+                Description = t.Description, CreatedAt = t.CreatedAt
+            });
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error fetching transactions for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load transactions" });
+        }
     }
 
-    /// <summary>
-    /// Gets current user's dashboard (from JWT token).
-    /// </summary>
-    /// <remarks>
-    /// Returns aggregated data including:
-    /// - Current balance
-    /// - Active investments summary
-    /// - Total and today's earnings
-    /// - Referral statistics
-    /// - Next payout time
-    /// </remarks>
     [HttpGet("me/dashboard")]
-    [ProducesResponseType(typeof(UserDashboardResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMyDashboard(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
-        _logger.LogInformation("[Dashboard] Fetching dashboard for user {UserId}", userId);
-
-        var dashboard = await _userRepository.GetDashboardAsync(userId.Value, cancellationToken);
-        
-        if (dashboard == null)
-            return NotFound(new { Message = "User not found" });
-
-        _logger.LogInformation(
-            "[Dashboard] User {UserId}: Balance=${Balance:F2}, TotalEarned=${TotalEarned:F2}, TodayProfit=${TodayProfit:F2}",
-            userId, dashboard.Balance, dashboard.TotalEarned, dashboard.TodayProfit);
-
-        return Ok(dashboard);
+        try
+        {
+            var dashboard = await _userRepository.GetDashboardAsync(userId.Value, cancellationToken);
+            if (dashboard == null) return NotFound(new { Message = "User not found" });
+            return Ok(dashboard);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error fetching dashboard for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load dashboard" });
+        }
     }
 
-    /// <summary>
-    /// Gets current user's notifications.
-    /// </summary>
     [HttpGet("me/notifications")]
-    [ProducesResponseType(typeof(NotificationsResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyNotifications(
-        [FromQuery] int limit = 20,
-        CancellationToken cancellationToken = default)
+        [FromQuery] int limit = 20, CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
         limit = Math.Min(Math.Max(1, limit), 50);
 
-        var notifications = await _notificationRepository.GetUserNotificationsAsync(userId.Value, limit, cancellationToken);
-        var unreadCount = await _notificationRepository.GetUnreadCountAsync(userId.Value, cancellationToken);
-
-        return Ok(new NotificationsResponse
+        try
         {
-            UnreadCount = unreadCount,
-            Notifications = notifications.Select(n => new NotificationDto
+            var notifications = await _notificationRepository.GetUserNotificationsAsync(userId.Value, limit, cancellationToken);
+            var unreadCount = await _notificationRepository.GetUnreadCountAsync(userId.Value, cancellationToken);
+
+            return Ok(new NotificationsResponse
             {
-                Id = n.Id,
-                Message = n.Message,
-                IsRead = n.IsRead,
-                CreatedAt = n.CreatedAt
-            }).ToList()
-        });
+                UnreadCount = unreadCount,
+                Notifications = notifications.Select(n => new NotificationDto
+                {
+                    Id = n.Id, Message = n.Message, IsRead = n.IsRead, CreatedAt = n.CreatedAt
+                }).ToList()
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error fetching notifications for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load notifications" });
+        }
     }
 
-    /// <summary>
-    /// Marks a notification as read.
-    /// </summary>
     [HttpPatch("me/notifications/{notificationId:guid}/read")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> MarkNotificationAsRead(Guid notificationId, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
-        var success = await _notificationRepository.MarkAsReadAsync(notificationId, userId.Value, cancellationToken);
-        
-        if (!success)
-            return NotFound(new { Message = "Notification not found" });
-
-        return Ok(new { Message = "Notification marked as read" });
+        try
+        {
+            var success = await _notificationRepository.MarkAsReadAsync(notificationId, userId.Value, cancellationToken);
+            if (!success) return NotFound(new { Message = "Notification not found" });
+            return Ok(new { Message = "Notification marked as read" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error marking notification {NotifId} for {UserId}", notificationId, userId);
+            return StatusCode(500, new { Message = "Failed to update notification" });
+        }
     }
 
-    /// <summary>
-    /// Marks all notifications as read.
-    /// </summary>
     [HttpPatch("me/notifications/read-all")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> MarkAllNotificationsAsRead(CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
-        await _notificationRepository.MarkAllAsReadAsync(userId.Value, cancellationToken);
-        
-        return Ok(new { Message = "All notifications marked as read" });
+        try
+        {
+            await _notificationRepository.MarkAllAsReadAsync(userId.Value, cancellationToken);
+            return Ok(new { Message = "All notifications marked as read" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error marking all notifications for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to update notifications" });
+        }
     }
 
-    /// <summary>
-    /// Deposits funds to current user's balance.
-    /// </summary>
     [HttpPost("me/deposit")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Deposit(
-        [FromBody] Tradyx.Core.DTOs.DepositRequest request,
-        CancellationToken cancellationToken)
+        [FromBody] Tradyx.Core.DTOs.DepositRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
         if (!ModelState.IsValid)
         {
             var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             return BadRequest(new { Message = string.Join(" ", errors) });
         }
+        if (request.Amount <= 0) return BadRequest(new { Message = "Amount must be positive" });
 
-        if (request.Amount <= 0)
-            return BadRequest(new { Message = "Amount must be positive" });
+        try
+        {
+            var success = await _userRepository.DepositAsync(userId.Value, request.Amount, cancellationToken);
+            if (!success) return BadRequest(new { Message = "Deposit failed — user not found" });
 
-        var success = await _userRepository.DepositAsync(userId.Value, request.Amount, cancellationToken);
-        if (!success)
-            return BadRequest(new { Message = "Deposit failed" });
+            _logger.LogInformation("[Deposit] User {UserId} deposited ${Amount:F2}", userId, request.Amount);
 
-        _logger.LogInformation("[Deposit] User {UserId} deposited ${Amount:F2}", userId, request.Amount);
+            // Real-time: push new balance + events to connected client
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var user = await _userRepository.GetByIdAsync(userId.Value);
+                    if (user != null)
+                    {
+                        await _realtime.NotifyBalanceUpdated(userId.Value, user.Balance);
+                        await _realtime.NotifyTransactionCreated(userId.Value, "Deposit", request.Amount);
+                        await _realtime.NotifyNewNotification(userId.Value, $"💳 Deposit ${request.Amount:F2} credited");
+                    }
+                }
+                catch { /* non-critical — don't fail the HTTP response */ }
+            });
 
-        return Ok(new { Message = $"Successfully deposited ${request.Amount:F2}", Amount = request.Amount });
+            return Ok(new { Message = $"Successfully deposited ${request.Amount:F2}", Amount = request.Amount });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Deposit] Error for user {UserId}, amount ${Amount:F2}", userId, request.Amount);
+            return StatusCode(500, new { Message = "Deposit failed due to an internal error" });
+        }
     }
 
-    /// <summary>
-    /// Withdraws funds from current user's balance.
-    /// </summary>
     [HttpPost("me/withdraw")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Withdraw(
-        [FromBody] Tradyx.Core.DTOs.WithdrawalRequest request,
-        CancellationToken cancellationToken)
+        [FromBody] Tradyx.Core.DTOs.WithdrawalRequest request, CancellationToken cancellationToken)
     {
         var userId = GetCurrentUserId();
-        if (userId == null)
-            return Unauthorized(new { Message = "Invalid token" });
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
 
         if (!ModelState.IsValid)
         {
             var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             return BadRequest(new { Message = string.Join(" ", errors) });
         }
+        if (request.Amount < 10) return BadRequest(new { Message = "Minimum withdrawal is $10" });
 
-        if (request.Amount < 10)
-            return BadRequest(new { Message = "Minimum withdrawal is $10" });
+        try
+        {
+            var (success, error) = await _userRepository.WithdrawAsync(userId.Value, request.Amount, request.WalletAddress, cancellationToken);
+            if (!success) return BadRequest(new { Message = error ?? "Withdrawal failed" });
 
-        var (success, error) = await _userRepository.WithdrawAsync(userId.Value, request.Amount, request.WalletAddress, cancellationToken);
-        if (!success)
-            return BadRequest(new { Message = error ?? "Withdrawal failed" });
+            _logger.LogInformation("[Withdraw] User {UserId} withdrew ${Amount:F2}", userId, request.Amount);
 
-        _logger.LogInformation("[Withdraw] User {UserId} withdrew ${Amount:F2}", userId, request.Amount);
+            // Real-time: push new balance + events
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var user = await _userRepository.GetByIdAsync(userId.Value);
+                    if (user != null)
+                    {
+                        await _realtime.NotifyBalanceUpdated(userId.Value, user.Balance);
+                        await _realtime.NotifyTransactionCreated(userId.Value, "Withdrawal", -request.Amount);
+                        await _realtime.NotifyNewNotification(userId.Value, $"💸 Withdrawal ${request.Amount:F2} processed");
+                    }
+                }
+                catch { /* non-critical */ }
+            });
 
-        return Ok(new { Message = $"Successfully withdrew ${request.Amount:F2}", Amount = request.Amount });
+            return Ok(new { Message = $"Successfully withdrew ${request.Amount:F2}", Amount = request.Amount });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Withdraw] Error for user {UserId}, amount ${Amount:F2}", userId, request.Amount);
+            return StatusCode(500, new { Message = "Withdrawal failed due to an internal error" });
+        }
     }
 
-    /// <summary>
-    /// Gets user ID from JWT token claims.
-    /// </summary>
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -261,34 +271,7 @@ public class UserController : ControllerBase
     }
 }
 
-public record UserProfileResponse
-{
-    public Guid Id { get; init; }
-    public string Username { get; init; } = string.Empty;
-    public string Email { get; init; } = string.Empty;
-    public decimal Balance { get; init; }
-    public DateTime CreatedAt { get; init; }
-}
-
-public record TransactionResponse
-{
-    public Guid Id { get; init; }
-    public decimal Amount { get; init; }
-    public string Type { get; init; } = string.Empty;
-    public string Description { get; init; } = string.Empty;
-    public DateTime CreatedAt { get; init; }
-}
-
-public record NotificationsResponse
-{
-    public int UnreadCount { get; init; }
-    public List<NotificationDto> Notifications { get; init; } = new();
-}
-
-public record NotificationDto
-{
-    public Guid Id { get; init; }
-    public string Message { get; init; } = string.Empty;
-    public bool IsRead { get; init; }
-    public DateTime CreatedAt { get; init; }
-}
+public record UserProfileResponse { public Guid Id { get; init; } public string Username { get; init; } = string.Empty; public string Email { get; init; } = string.Empty; public decimal Balance { get; init; } public DateTime CreatedAt { get; init; } }
+public record TransactionResponse { public Guid Id { get; init; } public decimal Amount { get; init; } public string Type { get; init; } = string.Empty; public string Description { get; init; } = string.Empty; public DateTime CreatedAt { get; init; } }
+public record NotificationsResponse { public int UnreadCount { get; init; } public List<NotificationDto> Notifications { get; init; } = new(); }
+public record NotificationDto { public Guid Id { get; init; } public string Message { get; init; } = string.Empty; public bool IsRead { get; init; } public DateTime CreatedAt { get; init; } }

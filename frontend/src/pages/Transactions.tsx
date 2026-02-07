@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Receipt, TrendingUp, Target, Wallet, Zap, ArrowDownRight, ArrowUpRight, Filter, ChevronDown, Inbox } from 'lucide-react';
+import { Receipt, TrendingUp, Target, Wallet, Zap, ArrowDownRight, ArrowUpRight, ChevronDown, Inbox } from 'lucide-react';
 import { userApi, type Transaction } from '../lib/api';
 
 const FILTERS = [

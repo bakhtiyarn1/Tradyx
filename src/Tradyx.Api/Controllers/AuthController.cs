@@ -18,12 +18,6 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// Registers a new user.
-    /// </summary>
-    /// <param name="request">Registration request.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Authentication response.</returns>
     [HttpPost("register")]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status400BadRequest)]
@@ -33,30 +27,32 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
-            
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             return BadRequest(AuthResponse.Fail(string.Join(" ", errors)));
         }
 
-        var response = await _authService.RegisterAsync(request, cancellationToken);
-
-        if (!response.Success)
+        try
         {
-            return BadRequest(response);
-        }
+            _logger.LogInformation("[Auth] Registration attempt for {Email}", request.Email);
 
-        return Ok(response);
+            var response = await _authService.RegisterAsync(request, cancellationToken);
+
+            if (!response.Success)
+            {
+                _logger.LogWarning("[Auth] Registration failed for {Email}: {Reason}", request.Email, response.Message);
+                return BadRequest(response);
+            }
+
+            _logger.LogInformation("[Auth] User registered: {Email} ({Username})", request.Email, request.Username);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Registration error for {Email}", request.Email);
+            return StatusCode(500, AuthResponse.Fail("An internal error occurred. Please try again."));
+        }
     }
 
-    /// <summary>
-    /// Authenticates a user and returns a JWT token.
-    /// </summary>
-    /// <param name="request">Login request with email and password.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Login response with JWT token if successful.</returns>
     [HttpPost("login")]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status401Unauthorized)]
@@ -66,21 +62,29 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid)
         {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
-            
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             return BadRequest(LoginResponse.Fail(string.Join(" ", errors)));
         }
 
-        var response = await _authService.LoginAsync(request, cancellationToken);
-
-        if (!response.Success)
+        try
         {
-            return Unauthorized(response);
-        }
+            _logger.LogInformation("[Auth] Login attempt for {Email}", request.Email);
 
-        return Ok(response);
+            var response = await _authService.LoginAsync(request, cancellationToken);
+
+            if (!response.Success)
+            {
+                _logger.LogWarning("[Auth] Login failed for {Email}", request.Email);
+                return Unauthorized(response);
+            }
+
+            _logger.LogInformation("[Auth] Login success for {Email}", request.Email);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Login error for {Email}", request.Email);
+            return StatusCode(500, LoginResponse.Fail("An internal error occurred. Please try again."));
+        }
     }
 }

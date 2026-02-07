@@ -37,7 +37,7 @@ function PurchaseModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
       <motion.div initial={{scale:0.9,y:30}} animate={{scale:1,y:0}} exit={{scale:0.9}} className="w-full max-w-lg glass p-6" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#00ff88]/20"><Zap className="w-5 h-5 text-[#00ff88]"/></div><div><h2 className="text-lg font-bold text-white">New Investment</h2><p className="text-xs text-gray-400">Balance: ${balance.toFixed(2)}</p></div></div>

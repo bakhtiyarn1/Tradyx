@@ -1,10 +1,12 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
 interface Toast { id: string; type: ToastType; message: string; }
+
+const MAX_TOASTS = 5;
 
 interface ToastContextType {
   success: (message: string) => void;
@@ -19,7 +21,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const add = useCallback((type: ToastType, message: string) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setToasts(p => [...p, { id, type, message }]);
+    setToasts(p => {
+      const next = [...p, { id, type, message }];
+      // Cap max toasts — remove oldest if exceeded
+      return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
+    });
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
   }, []);
 
@@ -27,11 +33,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts(p => p.filter(t => t.id !== id));
   }, []);
 
-  const ctx: ToastContextType = {
-    success: useCallback((msg: string) => add('success', msg), [add]),
-    error: useCallback((msg: string) => add('error', msg), [add]),
-    info: useCallback((msg: string) => add('info', msg), [add]),
-  };
+  const errorFn = useCallback((msg: string) => add('error', msg), [add]);
+  const successFn = useCallback((msg: string) => add('success', msg), [add]);
+  const infoFn = useCallback((msg: string) => add('info', msg), [add]);
+
+  // Listen for global API errors dispatched from axios interceptor
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent).detail;
+      if (msg) errorFn(msg);
+    };
+    window.addEventListener('api-error', handler);
+    return () => window.removeEventListener('api-error', handler);
+  }, [errorFn]);
+
+  const ctx: ToastContextType = { success: successFn, error: errorFn, info: infoFn };
 
   const icons = { success: CheckCircle2, error: AlertTriangle, info: Info };
   const colors = {
@@ -43,6 +59,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={ctx}>
       {children}
+      {/* z-[9999] ensures toasts always on top of modals (z-50) and overlays */}
       <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
           {toasts.map(t => {

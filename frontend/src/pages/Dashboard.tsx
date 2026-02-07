@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, TrendingUp, Users, Clock, ArrowUpRight, Zap, Target, Sparkles, Shield, Activity, X, DollarSign, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -10,7 +10,7 @@ import Sparkline from '../components/Sparkline';
 import LiveTradingFeed from '../components/LiveTradingFeed';
 import { useSounds } from '../hooks/useSounds';
 
-const genSparkline = (trend: 'up'|'down'|'neutral' = 'up') => { let v = 50; return Array.from({length:20}, () => { v = Math.max(10, Math.min(90, v + (Math.random() - (trend==='up'?0.4:trend==='down'?0.6:0.5))*10)); return v; }); };
+const genSparkline = (trend: 'up' | 'down' | 'neutral' = 'up') => { let v = 50; return Array.from({ length: 20 }, () => { v = Math.max(10, Math.min(90, v + (Math.random() - (trend === 'up' ? 0.4 : trend === 'down' ? 0.6 : 0.5)) * 10)); return v; }); };
 
 function MarketPairs() {
   const [pairs, setPairs] = useState([
@@ -19,31 +19,32 @@ function MarketPairs() {
     { symbol: 'SOL', name: 'Solana', price: 142.65, change: -0.54, data: genSparkline('down') },
     { symbol: 'BNB', name: 'Binance', price: 612.30, change: 0.93, data: genSparkline('neutral') },
   ]);
-  useEffect(() => { const i = setInterval(() => setPairs(p=>p.map(pr=>({...pr,price:pr.price+(Math.random()-0.5)*pr.price*0.002,change:Math.max(-5,Math.min(5,pr.change+(Math.random()-0.5)*0.3)),data:[...pr.data.slice(1),pr.data[pr.data.length-1]+(Math.random()-0.5)*5]}))),3000); return ()=>clearInterval(i); },[]);
+  useEffect(() => { const i = setInterval(() => setPairs(p => p.map(pr => ({ ...pr, price: pr.price + (Math.random() - 0.5) * pr.price * 0.002, change: Math.max(-5, Math.min(5, pr.change + (Math.random() - 0.5) * 0.3)), data: [...pr.data.slice(1), pr.data[pr.data.length - 1] + (Math.random() - 0.5) * 5] }))), 3000); return () => clearInterval(i); }, []);
 
   return (
     <div className="glass p-6">
-      <div className="flex items-center justify-between mb-5"><h3 className="font-semibold text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary-400"/>Market Overview</h3><span className="status-online"><span>Live</span></span></div>
-      <div className="space-y-4">{pairs.map((p,i)=>(
-        <motion.div key={p.symbol} initial={{opacity:0,x:-20}} animate={{opacity:1,x:0}} transition={{delay:i*0.1}} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] transition-all cursor-pointer group">
-          <div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${p.change>=0?'bg-[#00ff88]/10 text-[#00ff88]':'bg-[#ff3366]/10 text-[#ff3366]'}`}>{p.symbol.slice(0,2)}</div><div><p className="font-medium text-white group-hover:text-primary-400 transition-colors">{p.symbol}/USDT</p><p className="text-xs text-gray-500">{p.name}</p></div></div>
-          <div className="flex items-center gap-4"><Sparkline data={p.data} width={60} height={24} color={p.change>=0?'#00ff88':'#ff3366'} showGradient={false}/><div className="text-right min-w-[100px]"><p className="font-mono font-medium text-white">${p.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p><p className={`text-xs font-medium flex items-center justify-end gap-1 ${p.change>=0?'text-[#00ff88]':'text-[#ff3366]'}`}>{Math.abs(p.change).toFixed(2)}%</p></div></div>
+      <div className="flex items-center justify-between mb-5"><h3 className="font-semibold text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary-400" />Market Overview</h3><span className="status-online"><span>Live</span></span></div>
+      <div className="space-y-4">{pairs.map((p, i) => (
+        <motion.div key={p.symbol} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] transition-all cursor-pointer group">
+          <div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${p.change >= 0 ? 'bg-[#00ff88]/10 text-[#00ff88]' : 'bg-[#ff3366]/10 text-[#ff3366]'}`}>{p.symbol.slice(0, 2)}</div><div><p className="font-medium text-white group-hover:text-primary-400 transition-colors">{p.symbol}/USDT</p><p className="text-xs text-gray-500">{p.name}</p></div></div>
+          <div className="flex items-center gap-4"><Sparkline data={p.data} width={60} height={24} color={p.change >= 0 ? '#00ff88' : '#ff3366'} showGradient={false} /><div className="text-right min-w-[100px]"><p className="font-mono font-medium text-white">${p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className={`text-xs font-medium flex items-center justify-end gap-1 ${p.change >= 0 ? 'text-[#00ff88]' : 'text-[#ff3366]'}`}>{Math.abs(p.change).toFixed(2)}%</p></div></div>
         </motion.div>
       ))}</div>
     </div>
   );
 }
 
-function GlowStatCard({ icon: Icon, label, value, subValue, color='emerald', delay=0 }: { icon: any; label: string; value: string; subValue?: string; color?: 'emerald'|'blue'|'purple'|'amber'; delay?: number }) {
-  const c: Record<string,{bg:string;border:string;text:string}> = {
-    emerald:{bg:'from-[#00ff88]/20 to-[#00ff88]/5',border:'border-[#00ff88]/20',text:'text-[#00ff88]'},
-    blue:{bg:'from-[#00d4ff]/20 to-[#00d4ff]/5',border:'border-[#00d4ff]/20',text:'text-[#00d4ff]'},
-    purple:{bg:'from-purple-500/20 to-purple-500/5',border:'border-purple-500/20',text:'text-purple-400'},
-    amber:{bg:'from-amber-500/20 to-amber-500/5',border:'border-amber-500/20',text:'text-amber-400'},
-  }[color]!;
+function GlowStatCard({ icon: Icon, label, value, subValue, color = 'emerald', delay = 0 }: { icon: any; label: string; value: string; subValue?: string; color?: 'emerald' | 'blue' | 'purple' | 'amber'; delay?: number }) {
+  const colors: Record<string, { bg: string; border: string; text: string }> = {
+    emerald: { bg: 'from-[#00ff88]/20 to-[#00ff88]/5', border: 'border-[#00ff88]/20', text: 'text-[#00ff88]' },
+    blue: { bg: 'from-[#00d4ff]/20 to-[#00d4ff]/5', border: 'border-[#00d4ff]/20', text: 'text-[#00d4ff]' },
+    purple: { bg: 'from-purple-500/20 to-purple-500/5', border: 'border-purple-500/20', text: 'text-purple-400' },
+    amber: { bg: 'from-amber-500/20 to-amber-500/5', border: 'border-amber-500/20', text: 'text-amber-400' },
+  };
+  const c = colors[color];
   return (
-    <motion.div initial={{opacity:0,y:20,scale:0.95}} animate={{opacity:1,y:0,scale:1}} transition={{delay,duration:0.5}} whileHover={{scale:1.02,y:-2}} className={`glow-card p-5 bg-gradient-to-br ${c.bg} ${c.border} transition-all duration-300`}>
-      <div className="relative z-10"><div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${c.bg} flex items-center justify-center mb-4`}><Icon className={`w-5 h-5 ${c.text}`}/></div><p className="text-gray-400 text-sm mb-1">{label}</p><p className="text-2xl font-bold text-white">{value}</p>{subValue&&<p className="text-xs text-gray-500 mt-1">{subValue}</p>}</div>
+    <motion.div initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay, duration: 0.5 }} whileHover={{ scale: 1.02, y: -2 }} className={`glow-card p-5 bg-gradient-to-br ${c.bg} ${c.border} transition-all duration-300`}>
+      <div className="relative z-10"><div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${c.bg} flex items-center justify-center mb-4`}><Icon className={`w-5 h-5 ${c.text}`} /></div><p className="text-gray-400 text-sm mb-1">{label}</p><p className="text-2xl font-bold text-white">{value}</p>{subValue && <p className="text-xs text-gray-500 mt-1">{subValue}</p>}</div>
     </motion.div>
   );
 }
@@ -73,15 +74,15 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
-      <motion.div initial={{scale:0.9,opacity:0,y:30}} animate={{scale:1,opacity:1,y:0}} exit={{scale:0.9,opacity:0}} transition={{type:'spring',damping:25}} className="relative w-full max-w-md glass p-6" onClick={e=>e.stopPropagation()}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+      <motion.div initial={{ scale: 0.9, opacity: 0, y: 30 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0 }} transition={{ type: 'spring', damping: 25 }} className="relative w-full max-w-md glass p-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#00ff88]/20"><DollarSign className="w-5 h-5 text-[#00ff88]"/></div><h2 className="text-lg font-bold text-white">Deposit Funds</h2></div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10"><X className="w-5 h-5 text-gray-400"/></button>
+          <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#00ff88]/20"><DollarSign className="w-5 h-5 text-[#00ff88]" /></div><h2 className="text-lg font-bold text-white">Deposit Funds</h2></div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10"><X className="w-5 h-5 text-gray-400" /></button>
         </div>
-        
+
         {done ? (
-          <motion.div initial={{scale:0.8}} animate={{scale:1}} className="text-center py-8">
+          <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className="text-center py-8">
             <CheckCircle2 className="w-16 h-16 text-[#00ff88] mx-auto mb-4" />
             <p className="text-xl font-bold text-white">Deposit Successful!</p>
             <p className="text-gray-400 mt-2">${parseFloat(amount).toFixed(2)} added to your balance</p>
@@ -101,7 +102,7 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                 className="input-premium pl-12 text-lg" min="1" step="any" />
             </div>
             {error && <p className="text-[#ff3366] text-sm mb-4">{error}</p>}
-            <motion.button whileHover={{scale:1.02}} whileTap={{scale:0.98}} onClick={handleDeposit} disabled={loading || !amount}
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDeposit} disabled={loading || !amount}
               className="w-full btn-premium flex items-center justify-center gap-2 disabled:opacity-50">
               {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><DollarSign className="w-5 h-5" />Deposit</>}
             </motion.button>
@@ -122,9 +123,45 @@ export default function Dashboard() {
   const { playCashRegister } = useSounds();
   const prevBal = useRef<number>(0);
 
-  const loadDashboard = async () => { try { const d = await userApi.getDashboard(); setDashboard(d); } catch {} finally { setIsLoading(false); } };
-  useEffect(() => { loadDashboard(); const i = setInterval(loadDashboard, 30000); return () => clearInterval(i); }, []);
-  useEffect(() => { if (dashboard?.balance && prevBal.current > 0 && dashboard.balance > prevBal.current) playCashRegister(); if (dashboard?.balance) prevBal.current = dashboard.balance; }, [dashboard?.balance]);
+  const loadDashboard = useCallback(async () => {
+    try {
+      const d = await userApi.getDashboard();
+      setDashboard(d);
+    } catch {} finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial load. Fallback poll every 60s (SignalR is primary).
+  useEffect(() => {
+    loadDashboard();
+    const i = setInterval(loadDashboard, 60000);
+    return () => clearInterval(i);
+  }, [loadDashboard]);
+
+  // === SignalR: instant balance push ===
+  useEffect(() => {
+    const handleBalance = (e: Event) => {
+      const newBalance = (e as CustomEvent).detail as number;
+      setDashboard(prev => prev ? { ...prev, balance: newBalance } : prev);
+    };
+    const handleDashboardRefresh = () => loadDashboard();
+
+    window.addEventListener('signalr:balance', handleBalance);
+    window.addEventListener('signalr:dashboard-refresh', handleDashboardRefresh);
+    return () => {
+      window.removeEventListener('signalr:balance', handleBalance);
+      window.removeEventListener('signalr:dashboard-refresh', handleDashboardRefresh);
+    };
+  }, [loadDashboard]);
+
+  // Sound on balance increase
+  useEffect(() => {
+    if (dashboard?.balance && prevBal.current > 0 && dashboard.balance > prevBal.current) playCashRegister();
+    if (dashboard?.balance) prevBal.current = dashboard.balance;
+  }, [dashboard?.balance]);
+
+  // Animated balance counter
   useEffect(() => {
     if (!dashboard?.balance) return;
     setAnimBalance(dashboard.balance);
@@ -133,17 +170,17 @@ export default function Dashboard() {
     if (inc > 0) { const i = setInterval(() => setAnimBalance(p => p + inc), 200); return () => clearInterval(i); }
   }, [dashboard?.balance, dashboard?.activeInvestmentsAmount]);
 
-  const fmtPayout = (d: string | null) => { if (!d) return '--:--'; const diff = new Date(d).getTime() - Date.now(); if (diff <= 0) return 'Now'; return `${Math.floor(diff/60000)}m ${Math.floor((diff%60000)/1000)}s`; };
+  const fmtPayout = (d: string | null) => { if (!d) return '--:--'; const diff = new Date(d).getTime() - Date.now(); if (diff <= 0) return 'Now'; return `${Math.floor(diff / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`; };
 
-  if (isLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="w-16 h-16 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin"/></div>;
+  if (isLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="w-16 h-16 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" /></div>;
 
   return (
     <div className="space-y-6 relative">
       <div className="bg-animated" />
-      <motion.div initial={{opacity:0,y:-20}} animate={{opacity:1,y:0}} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div><h1 className="text-3xl font-bold text-white">Welcome, <span className="gradient-text">{user?.username}</span></h1><p className="text-gray-400 mt-1 flex items-center gap-2"><Shield className="w-4 h-4 text-primary-400"/>Your portfolio is protected by AI</p></div>
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div><h1 className="text-3xl font-bold text-white">Welcome, <span className="gradient-text">{user?.username}</span></h1><p className="text-gray-400 mt-1 flex items-center gap-2"><Shield className="w-4 h-4 text-primary-400" />Your portfolio is protected by AI</p></div>
         <div className="flex items-center gap-3">
-          <motion.button whileHover={{scale:1.03}} whileTap={{scale:0.97}} onClick={() => setShowDeposit(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00ff88] to-primary-600 text-black font-semibold hover:shadow-[0_0_25px_rgba(0,255,136,0.3)] transition-all">
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => setShowDeposit(true)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00ff88] to-primary-600 text-black font-semibold hover:shadow-[0_0_25px_rgba(0,255,136,0.3)] transition-all">
             <DollarSign className="w-4 h-4" /> Deposit
           </motion.button>
           <div className="status-online"><span>AI Engine Online</span></div>
@@ -151,43 +188,43 @@ export default function Dashboard() {
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <motion.div initial={{opacity:0,scale:0.95}} animate={{opacity:1,scale:1}} transition={{delay:0.1}} className="lg:col-span-2">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="lg:col-span-2">
           <div className="glow-card p-8 relative overflow-hidden">
-            <div className="absolute inset-0 opacity-30"><div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-primary-500/20 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 animate-pulse" style={{animationDuration:'4s'}}/></div>
+            <div className="absolute inset-0 opacity-30"><div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-primary-500/20 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 animate-pulse" style={{ animationDuration: '4s' }} /></div>
             <div className="relative z-10">
-              <div className="flex items-center gap-4 mb-8"><div className="w-14 h-14 bg-gradient-to-br from-[#00ff88] to-primary-600 rounded-2xl flex items-center justify-center shadow-lg glow-green"><Wallet className="w-7 h-7 text-white"/></div><div><p className="text-gray-400">Total Portfolio Value</p><span className="text-xs px-2 py-0.5 rounded-full bg-[#00ff88]/10 text-[#00ff88] font-medium">+{(dashboard?.balance && dashboard.balance > 0 ? ((dashboard?.todayProfit||0)/dashboard.balance*100) : 0).toFixed(2)}% today</span></div></div>
+              <div className="flex items-center gap-4 mb-8"><div className="w-14 h-14 bg-gradient-to-br from-[#00ff88] to-primary-600 rounded-2xl flex items-center justify-center shadow-lg glow-green"><Wallet className="w-7 h-7 text-white" /></div><div><p className="text-gray-400">Total Portfolio Value</p><span className="text-xs px-2 py-0.5 rounded-full bg-[#00ff88]/10 text-[#00ff88] font-medium">+{(dashboard?.balance && dashboard.balance > 0 ? ((dashboard?.todayProfit || 0) / dashboard.balance * 100) : 0).toFixed(2)}% today</span></div></div>
               <div className="mb-8"><SlotMachineCounter value={animBalance} className="text-5xl md:text-6xl font-bold text-white" decimals={2} /></div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-6 border-t border-white/10">
-                <div><p className="text-gray-500 text-xs mb-1">Active Investments</p><p className="text-xl font-bold text-white font-mono">${dashboard?.activeInvestmentsAmount?.toFixed(2)||'0.00'}</p></div>
-                <div><p className="text-gray-500 text-xs mb-1">Total Earned</p><p className="text-xl font-bold text-[#00ff88] font-mono">+${dashboard?.totalEarned?.toFixed(2)||'0.00'}</p></div>
-                <div><p className="text-gray-500 text-xs mb-1">Today's Profit</p><p className="text-xl font-bold text-[#00ff88] font-mono">+${dashboard?.todayProfit?.toFixed(2)||'0.00'}</p></div>
-                <div><p className="text-gray-500 text-xs mb-1">Next Payout</p><p className="text-xl font-bold text-white font-mono flex items-center gap-2"><Clock className="w-4 h-4 text-primary-400"/>{fmtPayout(dashboard?.nextPayoutAt||null)}</p></div>
+                <div><p className="text-gray-500 text-xs mb-1">Active Investments</p><p className="text-xl font-bold text-white font-mono">${dashboard?.activeInvestmentsAmount?.toFixed(2) || '0.00'}</p></div>
+                <div><p className="text-gray-500 text-xs mb-1">Total Earned</p><p className="text-xl font-bold text-[#00ff88] font-mono">+${dashboard?.totalEarned?.toFixed(2) || '0.00'}</p></div>
+                <div><p className="text-gray-500 text-xs mb-1">Today's Profit</p><p className="text-xl font-bold text-[#00ff88] font-mono">+${dashboard?.todayProfit?.toFixed(2) || '0.00'}</p></div>
+                <div><p className="text-gray-500 text-xs mb-1">Next Payout</p><p className="text-xl font-bold text-white font-mono flex items-center gap-2"><Clock className="w-4 h-4 text-primary-400" />{fmtPayout(dashboard?.nextPayoutAt || null)}</p></div>
               </div>
             </div>
           </div>
         </motion.div>
-        <motion.div initial={{opacity:0,x:20}} animate={{opacity:1,x:0}} transition={{delay:0.2}}><LiveTradingFeed /></motion.div>
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}><LiveTradingFeed /></motion.div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <GlowStatCard icon={Target} label="Active Deposits" value={`$${dashboard?.activeInvestmentsAmount?.toFixed(2)||'0.00'}`} subValue="Working 24/7" color="emerald" delay={0.3} />
-        <GlowStatCard icon={TrendingUp} label="Today's Earnings" value={`+$${((dashboard?.todayProfit||0)+(dashboard?.todayReferralBonus||0)).toFixed(2)}`} subValue="Profit + Referral" color="blue" delay={0.4} />
-        <GlowStatCard icon={Users} label="Your Referrals" value={dashboard?.referralsCount?.toString()||'0'} subValue="10% passive income" color="purple" delay={0.5} />
-        <GlowStatCard icon={Sparkles} label="Referral Bonus" value={`+$${dashboard?.todayReferralBonus?.toFixed(2)||'0.00'}`} subValue="Today's bonus" color="amber" delay={0.6} />
+        <GlowStatCard icon={Target} label="Active Deposits" value={`$${dashboard?.activeInvestmentsAmount?.toFixed(2) || '0.00'}`} subValue="Working 24/7" color="emerald" delay={0.3} />
+        <GlowStatCard icon={TrendingUp} label="Today's Earnings" value={`+$${((dashboard?.todayProfit || 0) + (dashboard?.todayReferralBonus || 0)).toFixed(2)}`} subValue="Profit + Referral" color="blue" delay={0.4} />
+        <GlowStatCard icon={Users} label="Your Referrals" value={dashboard?.referralsCount?.toString() || '0'} subValue="10% passive income" color="purple" delay={0.5} />
+        <GlowStatCard icon={Sparkles} label="Referral Bonus" value={`+$${dashboard?.todayReferralBonus?.toFixed(2) || '0.00'}`} subValue="Today's bonus" color="amber" delay={0.6} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:0.5}}><MarketPairs /></motion.div>
-        <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:0.6}} className="space-y-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}><MarketPairs /></motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="space-y-4">
           <Link to="/investments" className="glow-card p-6 flex items-center gap-5 group cursor-pointer block">
-            <div className="w-16 h-16 bg-gradient-to-br from-[#00ff88] to-primary-600 rounded-2xl flex items-center justify-center shadow-lg glow-green group-hover:scale-110 transition-transform"><Zap className="w-8 h-8 text-white"/></div>
+            <div className="w-16 h-16 bg-gradient-to-br from-[#00ff88] to-primary-600 rounded-2xl flex items-center justify-center shadow-lg glow-green group-hover:scale-110 transition-transform"><Zap className="w-8 h-8 text-white" /></div>
             <div className="flex-1"><h3 className="text-xl font-bold text-white group-hover:text-[#00ff88] transition-colors">New Investment</h3><p className="text-gray-400">Earn up to 1.7% daily returns</p></div>
-            <ArrowUpRight className="w-6 h-6 text-gray-500 group-hover:text-[#00ff88] transition-all"/>
+            <ArrowUpRight className="w-6 h-6 text-gray-500 group-hover:text-[#00ff88] transition-all" />
           </Link>
           <Link to="/transactions" className="glow-card p-6 flex items-center gap-5 group cursor-pointer block">
-            <div className="w-16 h-16 bg-gradient-to-br from-[#00d4ff] to-blue-600 rounded-2xl flex items-center justify-center shadow-lg glow-blue group-hover:scale-110 transition-transform"><Activity className="w-8 h-8 text-white"/></div>
+            <div className="w-16 h-16 bg-gradient-to-br from-[#00d4ff] to-blue-600 rounded-2xl flex items-center justify-center shadow-lg glow-blue group-hover:scale-110 transition-transform"><Activity className="w-8 h-8 text-white" /></div>
             <div className="flex-1"><h3 className="text-xl font-bold text-white group-hover:text-[#00d4ff] transition-colors">Transaction History</h3><p className="text-gray-400">View all your earnings</p></div>
-            <ArrowUpRight className="w-6 h-6 text-gray-500 group-hover:text-[#00d4ff] transition-all"/>
+            <ArrowUpRight className="w-6 h-6 text-gray-500 group-hover:text-[#00d4ff] transition-all" />
           </Link>
         </motion.div>
       </div>

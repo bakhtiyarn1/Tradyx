@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, X, CheckCircle2, TrendingUp, TrendingDown, Clock, Zap, Target, Receipt, AlertTriangle } from 'lucide-react';
 import { userApi } from '../lib/api';
 import type { Dashboard, Transaction } from '../lib/api';
@@ -34,7 +35,7 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
       <motion.div initial={{scale:0.9,y:30}} animate={{scale:1,y:0}} exit={{scale:0.9}} transition={{type:'spring',damping:25}} className="w-full max-w-md glass p-6" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#00ff88]/20"><ArrowDownLeft className="w-5 h-5 text-[#00ff88]"/></div><h2 className="text-lg font-bold text-white">Deposit Funds</h2></div>
@@ -91,7 +92,7 @@ function WithdrawModal({ onClose, onSuccess, balance }: { onClose: () => void; o
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
       <motion.div initial={{scale:0.9,y:30}} animate={{scale:1,y:0}} exit={{scale:0.9}} transition={{type:'spring',damping:25}} className="w-full max-w-md glass p-6" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3"><div className="p-2 rounded-xl bg-[#ff3366]/20"><ArrowUpRight className="w-5 h-5 text-[#ff3366]"/></div><h2 className="text-lg font-bold text-white">Withdraw Funds</h2></div>
@@ -217,7 +218,7 @@ export default function WalletPage() {
       <motion.div initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:0.5}} className="glass rounded-xl overflow-hidden">
         <div className="p-5 border-b border-white/5 flex items-center justify-between">
           <h3 className="font-semibold text-white flex items-center gap-2"><Receipt className="w-5 h-5 text-gray-400"/>Recent Transactions</h3>
-          <a href="/transactions" className="text-xs text-primary-400 hover:text-[#00ff88]">View all</a>
+          <Link to="/transactions" className="text-xs text-primary-400 hover:text-[#00ff88]">View all</Link>
         </div>
         {txs.length === 0 ? (
           <div className="p-12 text-center"><Wallet className="w-12 h-12 text-gray-700 mx-auto mb-3"/><p className="text-gray-500 font-medium">No transactions yet</p><p className="text-gray-600 text-sm mt-1">Deposit funds to get started</p></div>

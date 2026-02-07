@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Extensions.Logging;
 using Tradyx.Core.DTOs.User;
 using Tradyx.Core.Entities;
 using Tradyx.Core.Interfaces;
@@ -8,10 +9,12 @@ namespace Tradyx.Infrastructure.Repositories;
 public class UserRepository : IUserRepository
 {
     private readonly IDbConnectionFactory _connectionFactory;
+    private readonly ILogger<UserRepository> _logger;
 
-    public UserRepository(IDbConnectionFactory connectionFactory)
+    public UserRepository(IDbConnectionFactory connectionFactory, ILogger<UserRepository> logger)
     {
         _connectionFactory = connectionFactory;
+        _logger = logger;
     }
 
     public async Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -66,24 +69,30 @@ public class UserRepository : IUserRepository
 
     public async Task<bool> DepositAsync(Guid userId, decimal amount, CancellationToken cancellationToken = default)
     {
+        if (amount <= 0) return false;
+
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
 
         try
         {
+            // Row-lock to prevent concurrent balance races
+            const string lockSql = "SELECT id FROM users WHERE id = @UserId FOR UPDATE";
+            var exists = await connection.QuerySingleOrDefaultAsync<Guid?>(lockSql, new { UserId = userId }, transaction);
+            if (exists == null) { transaction.Rollback(); return false; }
+
             // Update balance
             const string updateSql = "UPDATE users SET balance = balance + @Amount WHERE id = @UserId";
-            var affected = await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
-            if (affected == 0) { transaction.Rollback(); return false; }
+            await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
 
-            // Create transaction record
+            // Transaction record
             var tx = Transaction.Create(userId, amount, Transaction.Types.Deposit, $"Deposit of ${amount:F2}");
             const string insertSql = @"
                 INSERT INTO transactions (id, user_id, amount, type, description, created_at)
                 VALUES (@Id, @UserId, @Amount, @Type, @Description, @CreatedAt)";
             await connection.ExecuteAsync(insertSql, new { tx.Id, tx.UserId, tx.Amount, tx.Type, tx.Description, tx.CreatedAt }, transaction);
 
-            // Create notification
+            // Notification
             var notif = Notification.Create(userId, $"💳 Ваш баланс пополнен на ${amount:F2}");
             const string notifSql = @"
                 INSERT INTO notifications (id, user_id, message, is_read, created_at)
@@ -91,23 +100,27 @@ public class UserRepository : IUserRepository
             await connection.ExecuteAsync(notifSql, new { notif.Id, notif.UserId, notif.Message, notif.IsRead, notif.CreatedAt }, transaction);
 
             transaction.Commit();
+            _logger.LogInformation("[UserRepo] Deposit ${Amount:F2} for user {UserId}", amount, userId);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             transaction.Rollback();
+            _logger.LogError(ex, "[UserRepo] Deposit failed for user {UserId}, amount ${Amount:F2}", userId, amount);
             throw;
         }
     }
 
     public async Task<(bool Success, string? Error)> WithdrawAsync(Guid userId, decimal amount, string? walletAddress, CancellationToken cancellationToken = default)
     {
+        if (amount <= 0) return (false, "Amount must be positive");
+
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
 
         try
         {
-            // Check balance with row lock
+            // Row-lock + balance check
             const string checkSql = "SELECT balance FROM users WHERE id = @UserId FOR UPDATE";
             var balance = await connection.QuerySingleOrDefaultAsync<decimal?>(checkSql, new { UserId = userId }, transaction);
             if (balance == null) { transaction.Rollback(); return (false, "User not found"); }
@@ -135,11 +148,13 @@ public class UserRepository : IUserRepository
             await connection.ExecuteAsync(notifSql, new { notif.Id, notif.UserId, notif.Message, notif.IsRead, notif.CreatedAt }, transaction);
 
             transaction.Commit();
+            _logger.LogInformation("[UserRepo] Withdrawal ${Amount:F2} for user {UserId}", amount, userId);
             return (true, null);
         }
-        catch
+        catch (Exception ex)
         {
             transaction.Rollback();
+            _logger.LogError(ex, "[UserRepo] Withdrawal failed for user {UserId}, amount ${Amount:F2}", userId, amount);
             throw;
         }
     }

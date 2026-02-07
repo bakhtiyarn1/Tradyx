@@ -5,8 +5,10 @@ const API_BASE_URL = 'http://localhost:5001/api';
 export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000, // 15s timeout
 });
 
+// === Inject token ===
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('tradyx_token');
@@ -16,6 +18,8 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// === Global error interceptor ===
+// Dispatches custom events so ToastProvider can catch them
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -23,10 +27,32 @@ api.interceptors.response.use(
       localStorage.removeItem('tradyx_token');
       localStorage.removeItem('tradyx_user');
       window.location.href = '/login';
+      return Promise.reject(error);
     }
+
+    // Extract error message from backend
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.Message ||
+      (error.code === 'ECONNABORTED' ? 'Request timed out' : null) ||
+      (error.message === 'Network Error' ? 'Server is unavailable' : null) ||
+      'Something went wrong';
+
+    // Dispatch global toast error event (picked up by ToastProvider)
+    window.dispatchEvent(new CustomEvent('api-error', { detail: message }));
+
     return Promise.reject(error);
   }
 );
+
+// === Helper to extract error message from axios errors ===
+export function getErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.message || error.response?.data?.Message || error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Unknown error';
+}
 
 export const authApi = {
   login: async (email: string, password: string) => {
@@ -48,7 +74,7 @@ export const userApi = {
     const { data } = await api.get('/user/me');
     return data;
   },
-  getTransactions: async (skip = 0, take = 20) => {
+  getTransactions: async (skip = 0, take = 50) => {
     const { data } = await api.get(`/user/me/transactions?skip=${skip}&take=${take}`);
     return data;
   },

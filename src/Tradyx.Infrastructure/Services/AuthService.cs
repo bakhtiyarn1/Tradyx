@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Tradyx.Core.DTOs;
 using Tradyx.Core.Entities;
@@ -14,74 +15,102 @@ public class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthService> _logger;
 
-    public AuthService(IUserRepository userRepository, IPasswordHasher passwordHasher, IConfiguration configuration)
+    public AuthService(
+        IUserRepository userRepository, IPasswordHasher passwordHasher,
+        IConfiguration configuration, ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _configuration = configuration;
+        _logger = logger;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
-        // Check existing email
-        var existingEmail = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
-        if (existingEmail != null)
-            return AuthResponse.Fail("Email already registered");
-
-        // Check existing username
-        var existingUsername = await _userRepository.GetByUsernameAsync(request.Username, cancellationToken);
-        if (existingUsername != null)
-            return AuthResponse.Fail("Username already taken");
-
-        // Resolve referrer
-        Guid? referrerId = null;
-        if (!string.IsNullOrEmpty(request.ReferrerCode))
+        try
         {
-            var referrer = await _userRepository.GetByUsernameAsync(request.ReferrerCode, cancellationToken);
-            referrerId = referrer?.Id;
+            // Check existing email
+            var existingEmail = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
+            if (existingEmail != null)
+                return AuthResponse.Fail("Email already registered");
+
+            // Check existing username
+            var existingUsername = await _userRepository.GetByUsernameAsync(request.Username, cancellationToken);
+            if (existingUsername != null)
+                return AuthResponse.Fail("Username already taken");
+
+            // Resolve referrer
+            Guid? referrerId = null;
+            if (!string.IsNullOrEmpty(request.ReferrerCode))
+            {
+                var referrer = await _userRepository.GetByUsernameAsync(request.ReferrerCode, cancellationToken);
+                referrerId = referrer?.Id;
+            }
+
+            var user = new User
+            {
+                Id = Guid.NewGuid(),
+                Username = request.Username,
+                Email = request.Email,
+                PasswordHash = _passwordHasher.Hash(request.Password),
+                Balance = 0,
+                ReferrerId = referrerId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _userRepository.CreateAsync(user, cancellationToken);
+            _logger.LogInformation("[Auth] Registered user {Username} ({Email})", user.Username, user.Email);
+
+            var token = GenerateJwtToken(user);
+            return AuthResponse.Ok(token, new AuthUserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Balance = user.Balance
+            });
         }
-
-        var user = new User
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "23505") // unique_violation
         {
-            Id = Guid.NewGuid(),
-            Username = request.Username,
-            Email = request.Email,
-            PasswordHash = _passwordHasher.Hash(request.Password),
-            Balance = 0,
-            ReferrerId = referrerId,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        await _userRepository.CreateAsync(user, cancellationToken);
-
-        var token = GenerateJwtToken(user);
-        return AuthResponse.Ok(token, new AuthUserDto
+            _logger.LogWarning("[Auth] Duplicate registration attempt for {Email}", request.Email);
+            return AuthResponse.Fail("Email or username already registered");
+        }
+        catch (Exception ex)
         {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            Balance = user.Balance
-        });
+            _logger.LogError(ex, "[Auth] Registration error for {Email}", request.Email);
+            throw;
+        }
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
-        var user = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
-        if (user == null)
-            return LoginResponse.Fail("Invalid email or password");
-
-        if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
-            return LoginResponse.Fail("Invalid email or password");
-
-        var token = GenerateJwtToken(user);
-        return LoginResponse.Ok(token, new AuthUserDto
+        try
         {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            Balance = user.Balance
-        });
+            var user = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
+            if (user == null)
+                return LoginResponse.Fail("Invalid email or password");
+
+            if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
+                return LoginResponse.Fail("Invalid email or password");
+
+            _logger.LogInformation("[Auth] Login success for {Email}", request.Email);
+
+            var token = GenerateJwtToken(user);
+            return LoginResponse.Ok(token, new AuthUserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Balance = user.Balance
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Login error for {Email}", request.Email);
+            throw;
+        }
     }
 
     private string GenerateJwtToken(User user)
@@ -104,8 +133,7 @@ public class AuthService : IAuthService
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
+            issuer: issuer, audience: audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(expiryMinutes),
             signingCredentials: credentials);

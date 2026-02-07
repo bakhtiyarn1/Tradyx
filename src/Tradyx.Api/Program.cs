@@ -2,6 +2,9 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Tradyx.Api.Hubs;
+using Tradyx.Api.Services;
+using Tradyx.Core.Interfaces;
 using Tradyx.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// SignalR
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IRealtimeNotifier, SignalRNotifier>();
 
 // Configure Swagger with JWT support
 builder.Services.AddSwaggerGen(options =>
@@ -20,7 +27,6 @@ builder.Services.AddSwaggerGen(options =>
         Description = "Investment platform API"
     });
 
-    // Add JWT Authorization to Swagger
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -69,6 +75,21 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
         ClockSkew = TimeSpan.Zero
     };
+
+    // SignalR sends JWT via query string for WebSocket connections
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 });
 
 builder.Services.AddAuthorization();
@@ -81,7 +102,7 @@ builder.Services.AddCors(options =>
         policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowCredentials(); // Required for SignalR
     });
 });
 
@@ -100,14 +121,17 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// Disable HTTPS redirect in development to allow HTTP API calls
 if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// SignalR hub endpoint
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

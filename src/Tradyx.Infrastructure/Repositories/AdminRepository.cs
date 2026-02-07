@@ -123,9 +123,14 @@ public class AdminRepository : IAdminRepository
         using var transaction = connection.BeginTransaction();
         try
         {
+            // Row-lock + negative balance guard
+            const string lockSql = "SELECT balance FROM users WHERE id = @UserId FOR UPDATE";
+            var balance = await connection.QuerySingleOrDefaultAsync<decimal?>(lockSql, new { UserId = userId }, transaction);
+            if (balance == null) { transaction.Rollback(); return false; }
+            if (balance + amount < 0) { transaction.Rollback(); return false; } // would go negative
+
             const string updateSql = "UPDATE users SET balance = balance + @Amount WHERE id = @UserId";
-            var affected = await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
-            if (affected == 0) { transaction.Rollback(); return false; }
+            await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
 
             var tx = Transaction.Create(userId, amount, Transaction.Types.ManualAdjustment, $"Admin adjustment: {reason}");
             const string insertTxSql = @"

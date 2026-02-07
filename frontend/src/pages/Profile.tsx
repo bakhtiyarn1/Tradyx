@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { UserCircle, Mail, Calendar, Users, Copy, Check, Link2, Volume2, VolumeX, LogOut, Shield, Gift, Clipboard } from 'lucide-react';
+import { UserCircle, Mail, Copy, Check, Link2, Volume2, VolumeX, LogOut, Shield, Gift, Clipboard } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { userApi } from '../lib/api';
 import type { Dashboard } from '../lib/api';
@@ -13,10 +13,11 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const toast = useToast();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [loading, setLoading] = useState(true);
   const [soundsOn, setSoundsOn] = useState(true);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => { userApi.getDashboard().then(setDashboard).catch(() => {}); }, []);
+  useEffect(() => { userApi.getDashboard().then(setDashboard).catch(() => {}).finally(() => setLoading(false)); }, []);
 
   const referralLink = `${window.location.origin}/login?ref=${user?.username}`;
 
@@ -35,6 +36,8 @@ export default function ProfilePage() {
     logout();
     navigate('/login');
   };
+
+  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="w-12 h-12 border-4 border-primary-500/20 border-t-primary-500 rounded-full animate-spin"/></div>;
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">

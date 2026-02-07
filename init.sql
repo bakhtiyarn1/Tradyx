@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    balance DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    balance DECIMAL(18,2) NOT NULL DEFAULT 0.00 CHECK (balance >= 0),
     referrer_id UUID REFERENCES users(id),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

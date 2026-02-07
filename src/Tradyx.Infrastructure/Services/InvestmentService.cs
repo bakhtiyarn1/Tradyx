@@ -82,9 +82,10 @@ public class InvestmentService : IInvestmentService
 
             return InvestmentResponse.Ok(investment.Id, amount, dailyRate, investment.CreatedAt, investment.NextPayoutAt);
         }
-        catch
+        catch (Exception ex)
         {
             transaction.Rollback();
+            _logger.LogError(ex, "[Investment] Purchase failed for user {UserId}, amount ${Amount:F2}", userId, amount);
             throw;
         }
     }

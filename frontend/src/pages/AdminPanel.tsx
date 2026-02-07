@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Users, DollarSign, TrendingUp, Zap, Activity, X, AlertTriangle, ChevronRight, CheckCircle2, Search, BarChart3, Clock, Eye, Wallet } from 'lucide-react';
+import { Shield, Users, DollarSign, TrendingUp, Zap, Activity, X, ChevronRight, Search, BarChart3, Eye, Wallet } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts';
 import { adminApi, type AdminStats, type AdminUser, type UserFullDetails } from '../lib/api';
 import { useSounds } from '../hooks/useSounds';
@@ -46,7 +46,7 @@ function UserDetailModal({ userId, onClose }: { userId: string; onClose: () => v
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" onClick={onClose}>
       <motion.div initial={{scale:0.9,y:30}} animate={{scale:1,y:0}} exit={{scale:0.9}} className="w-full max-w-3xl max-h-[90vh] glass-admin overflow-hidden relative" onClick={e=>e.stopPropagation()}>
         <div className="scanline-effect" />
         <div className="godmode-header p-6 flex items-center justify-between">
@@ -106,7 +106,7 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [actionResult, setActionResult] = useState<{type:'success'|'error';msg:string}|null>(null);
+  const [payoutLoading, setPayoutLoading] = useState(false);
   const { playCyber, playSuccess, playError } = useSounds();
 
   const profitChartData = useRealtimeChartData(
@@ -122,9 +122,11 @@ export default function AdminPanel() {
   useEffect(() => { playCyber(); load(); const i=setInterval(load,30000); return ()=>clearInterval(i); }, [load]);
 
   const triggerPayouts = async () => {
-    try { const r = await adminApi.triggerPayouts(); playSuccess(); setActionResult({type:'success', msg:`Processed ${r.processedCount ?? 0} payouts`}); load(); }
-    catch { playError(); setActionResult({type:'error', msg:'Payout trigger failed'}); }
-    setTimeout(()=>setActionResult(null), 3000);
+    if (payoutLoading) return;
+    setPayoutLoading(true);
+    try { const r = await adminApi.triggerPayouts(); playSuccess(); load(); }
+    catch { playError(); }
+    finally { setPayoutLoading(false); }
   };
 
   const filtered = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
@@ -133,21 +135,15 @@ export default function AdminPanel() {
 
   return (
     <div className="space-y-6 relative">
-      {/* Toast */}
-      <AnimatePresence>{actionResult&&(
-        <motion.div initial={{opacity:0,y:-20,x:'-50%'}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-20}} className={`fixed top-6 left-1/2 z-[9999] px-6 py-3 rounded-xl flex items-center gap-3 ${actionResult.type==='success'?'bg-[#00ff88]/20 border border-[#00ff88]/40 text-[#00ff88]':'bg-[#ff3366]/20 border border-[#ff3366]/40 text-[#ff3366]'}`}>
-          {actionResult.type==='success'?<CheckCircle2 className="w-5 h-5"/>:<AlertTriangle className="w-5 h-5"/>}
-          <span className="font-medium">{actionResult.msg}</span>
-        </motion.div>
-      )}</AnimatePresence>
-
       {/* Header */}
       <motion.div initial={{opacity:0,y:-20}} animate={{opacity:1,y:0}} className="flex items-center justify-between">
         <div className="flex items-center gap-3"><motion.div animate={{boxShadow:['0 0 10px rgba(255,51,102,0.3)','0 0 25px rgba(255,51,102,0.6)','0 0 10px rgba(255,51,102,0.3)']}} transition={{duration:2,repeat:Infinity}} className="p-2 rounded-xl bg-[#ff3366]/20"><Shield className="w-6 h-6 text-[#ff3366]"/></motion.div>
           <div><h1 className="text-2xl font-bold text-white">God Mode <span className="text-gray-500 text-base font-normal">// Command Center</span></h1><p className="text-xs text-gray-500">Admin Control Panel</p></div>
         </div>
-        <motion.button whileHover={{scale:1.05}} whileTap={{scale:0.95}} onClick={triggerPayouts} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#ff3366] to-pink-600 text-white font-semibold text-sm hover:shadow-[0_0_25px_rgba(255,51,102,0.4)]">
-          <Zap className="w-4 h-4"/>Trigger Payouts
+        <motion.button whileHover={{scale:payoutLoading?1:1.05}} whileTap={{scale:payoutLoading?1:0.95}} onClick={triggerPayouts} disabled={payoutLoading}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#ff3366] to-pink-600 text-white font-semibold text-sm hover:shadow-[0_0_25px_rgba(255,51,102,0.4)] disabled:opacity-50 disabled:cursor-not-allowed">
+          {payoutLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <Zap className="w-4 h-4"/>}
+          {payoutLoading ? 'Processing...' : 'Trigger Payouts'}
         </motion.button>
       </motion.div>
 
