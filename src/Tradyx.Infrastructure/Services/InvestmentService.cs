@@ -32,16 +32,30 @@ public class InvestmentService : IInvestmentService
         _logger = logger;
     }
 
+    public async Task<IEnumerable<InvestmentPlan>> GetActivePlansAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        return await connection.QueryAsync<InvestmentPlan>(
+            "SELECT * FROM investment_plans WHERE is_active = true ORDER BY sort_order ASC, created_at ASC");
+    }
+
     public async Task<InvestmentResponse> PurchaseAsync(Guid userId, decimal amount, CancellationToken cancellationToken = default)
     {
-        if (amount < 20)
-            return InvestmentResponse.Fail("Minimum investment is $20");
-
-        var dailyRate = Investment.GetDailyRate(amount);
-        if (dailyRate == 0)
+        if (amount < 1)
             return InvestmentResponse.Fail("Invalid investment amount");
 
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        // Find matching plan from DB
+        var plan = await connection.QuerySingleOrDefaultAsync<InvestmentPlan>(
+            @"SELECT * FROM investment_plans 
+              WHERE is_active = true AND @Amount >= min_amount AND @Amount <= max_amount 
+              ORDER BY daily_rate DESC LIMIT 1",
+            new { Amount = amount });
+
+        if (plan == null)
+            return InvestmentResponse.Fail($"No investment plan found for ${amount:F2}. Check available plans.");
+
         using var transaction = connection.BeginTransaction();
 
         try
@@ -58,29 +72,28 @@ public class InvestmentService : IInvestmentService
                 "UPDATE users SET balance = balance - @Amount WHERE id = @UserId",
                 new { Amount = amount, UserId = userId }, transaction);
 
-            // Create investment with finite payout count
-            var payoutCount = Investment.GetDefaultPayoutCount(amount);
+            // Create investment using plan duration
             var investment = new Investment
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Amount = amount,
-                DailyRate = dailyRate,
+                DailyRate = plan.DailyRate,
                 CreatedAt = DateTime.UtcNow,
                 NextPayoutAt = DateTime.UtcNow.AddMinutes(2),
                 IsActive = true,
-                RemainingPayouts = payoutCount
+                RemainingPayouts = plan.DurationDays
             };
             await _investmentRepository.AddAsync(investment, connection, transaction);
 
             // Transaction record
             var tx = Transaction.Create(userId, -amount, Transaction.Types.Investment,
-                $"Investment of ${amount:F2} at {dailyRate * 100:F1}% daily");
+                $"Investment ${amount:F2} — {plan.Name} ({plan.DailyRate * 100:F1}%/day, {plan.DurationDays}d)");
             await _transactionRepository.AddAsync(tx, connection, transaction);
 
             // Notification
             var notif = Notification.Create(userId,
-                $"🎯 Инвестиция ${amount:F2} активирована! Ставка: {dailyRate * 100:F1}% в день.");
+                $"🎯 Инвестиция ${amount:F2} активирована! План: {plan.Name}, ставка: {plan.DailyRate * 100:F1}%/день, {plan.DurationDays} дней.");
             await _notificationRepository.AddAsync(notif, connection, transaction);
 
             // === Update turnovers (personal + team ancestors) ===
@@ -112,7 +125,8 @@ public class InvestmentService : IInvestmentService
             }
 
             transaction.Commit();
-            _logger.LogInformation("[Investment] User {UserId} invested ${Amount} at {Rate}%", userId, amount, dailyRate * 100);
+            _logger.LogInformation("[Investment] User {UserId} invested ${Amount} in plan {Plan} at {Rate}%",
+                userId, amount, plan.Name, plan.DailyRate * 100);
 
             // Check rank upgrade after commit (fire-and-forget)
             _ = Task.Run(async () =>
@@ -121,7 +135,7 @@ public class InvestmentService : IInvestmentService
                 catch (Exception ex) { _logger.LogWarning(ex, "[Investment] Rank check failed for {UserId}", userId); }
             });
 
-            return InvestmentResponse.Ok(investment.Id, amount, dailyRate, investment.CreatedAt, investment.NextPayoutAt, investment.RemainingPayouts);
+            return InvestmentResponse.Ok(investment.Id, amount, plan.DailyRate, investment.CreatedAt, investment.NextPayoutAt, investment.RemainingPayouts);
         }
         catch (Exception ex)
         {

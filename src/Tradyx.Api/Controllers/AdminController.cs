@@ -214,6 +214,131 @@ public class AdminController : ControllerBase
         }
     }
 
+    // === INVESTMENT PLANS CRUD ===
+
+    [HttpGet("plans")]
+    public async Task<IActionResult> GetAllPlans(CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            var plans = await _adminRepository.GetAllPlansAsync(cancellationToken);
+            return Ok(plans);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error fetching plans");
+            return StatusCode(500, new { Message = "Failed to load plans" });
+        }
+    }
+
+    [HttpGet("plans/{planId:guid}")]
+    public async Task<IActionResult> GetPlan(Guid planId, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            var plan = await _adminRepository.GetPlanByIdAsync(planId, cancellationToken);
+            if (plan == null) return NotFound(new { Message = "Plan not found" });
+            return Ok(plan);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error fetching plan {PlanId}", planId);
+            return StatusCode(500, new { Message = "Failed to load plan" });
+        }
+    }
+
+    [HttpPost("plans")]
+    public async Task<IActionResult> CreatePlan([FromBody] CreatePlanRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest(new { Message = "Plan name is required" });
+        if (request.MinAmount <= 0 || request.MaxAmount <= 0 || request.MinAmount >= request.MaxAmount)
+            return BadRequest(new { Message = "Invalid amount range" });
+        if (request.DailyRate <= 0 || request.DailyRate > 0.1m)
+            return BadRequest(new { Message = "Daily rate must be between 0 and 10%" });
+        if (request.DurationDays < 1 || request.DurationDays > 365)
+            return BadRequest(new { Message = "Duration must be between 1 and 365 days" });
+
+        try
+        {
+            _logger.LogWarning("[Admin] Creating plan: {Name} ({Min}-{Max}, {Rate}%, {Days}d)",
+                request.Name, request.MinAmount, request.MaxAmount, request.DailyRate * 100, request.DurationDays);
+
+            var plan = await _adminRepository.CreatePlanAsync(request, cancellationToken);
+            return Ok(new { Message = "Plan created", Plan = plan });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error creating plan");
+            return StatusCode(500, new { Message = "Failed to create plan" });
+        }
+    }
+
+    [HttpPut("plans/{planId:guid}")]
+    public async Task<IActionResult> UpdatePlan(Guid planId, [FromBody] UpdatePlanRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            _logger.LogWarning("[Admin] Updating plan {PlanId}", planId);
+            var success = await _adminRepository.UpdatePlanAsync(planId, request, cancellationToken);
+            if (!success) return NotFound(new { Message = "Plan not found" });
+            return Ok(new { Message = "Plan updated" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error updating plan {PlanId}", planId);
+            return StatusCode(500, new { Message = "Failed to update plan" });
+        }
+    }
+
+    [HttpDelete("plans/{planId:guid}")]
+    public async Task<IActionResult> DeletePlan(Guid planId, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            _logger.LogWarning("[Admin] Deleting plan {PlanId}", planId);
+            var success = await _adminRepository.DeletePlanAsync(planId, cancellationToken);
+            if (!success) return NotFound(new { Message = "Plan not found" });
+            return Ok(new { Message = "Plan deleted" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error deleting plan {PlanId}", planId);
+            return StatusCode(500, new { Message = "Failed to delete plan" });
+        }
+    }
+
+    // === ANALYTICS ===
+
+    [HttpGet("analytics")]
+    public async Task<IActionResult> GetAnalytics([FromQuery] int days = 14, CancellationToken cancellationToken = default)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        days = Math.Min(Math.Max(1, days), 90);
+
+        try
+        {
+            var analytics = await _adminRepository.GetAnalyticsAsync(days, cancellationToken);
+            return Ok(analytics);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error fetching analytics");
+            return StatusCode(500, new { Message = "Failed to load analytics" });
+        }
+    }
+
     private bool IsAdmin()
     {
         var userEmail = User.FindFirstValue(ClaimTypes.Email);

@@ -43,6 +43,34 @@ CREATE INDEX IF NOT EXISTS idx_investments_user ON investments (user_id);
 CREATE INDEX IF NOT EXISTS idx_investments_active ON investments (is_active, next_payout_at);
 CREATE INDEX IF NOT EXISTS idx_investments_active_payouts ON investments (is_active, remaining_payouts) WHERE is_active = true AND remaining_payouts > 0;
 
+-- Investment Plans table (admin-managed)
+CREATE TABLE IF NOT EXISTS investment_plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    min_amount DECIMAL(18,2) NOT NULL,
+    max_amount DECIMAL(18,2) NOT NULL,
+    daily_rate DECIMAL(8,4) NOT NULL,
+    duration_days INT NOT NULL DEFAULT 30,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    sort_order INT NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
+    color VARCHAR(20) NOT NULL DEFAULT 'blue',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_plans_active ON investment_plans (is_active, sort_order);
+
+-- Seed default plans (idempotent)
+INSERT INTO investment_plans (name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
+SELECT * FROM (VALUES
+    ('Starter',   20.00,   49.99, 0.0080, 30, 1, 'Perfect for beginners', 'blue'),
+    ('Growth',    50.00,   99.99, 0.0110, 30, 2, 'Balanced risk & reward', 'purple'),
+    ('Premium',  100.00,  149.99, 0.0140, 30, 3, 'Higher daily returns', 'cyan'),
+    ('Elite',    150.00, 999999.00, 0.0170, 30, 4, 'Maximum earning potential', 'green')
+) AS v(name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
+WHERE NOT EXISTS (SELECT 1 FROM investment_plans LIMIT 1);
+
 -- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY,

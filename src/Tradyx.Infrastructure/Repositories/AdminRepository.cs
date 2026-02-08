@@ -123,11 +123,10 @@ public class AdminRepository : IAdminRepository
         using var transaction = connection.BeginTransaction();
         try
         {
-            // Row-lock + negative balance guard
             const string lockSql = "SELECT balance FROM users WHERE id = @UserId FOR UPDATE";
             var balance = await connection.QuerySingleOrDefaultAsync<decimal?>(lockSql, new { UserId = userId }, transaction);
             if (balance == null) { transaction.Rollback(); return false; }
-            if (balance + amount < 0) { transaction.Rollback(); return false; } // would go negative
+            if (balance + amount < 0) { transaction.Rollback(); return false; }
 
             const string updateSql = "UPDATE users SET balance = balance + @Amount WHERE id = @UserId";
             await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
@@ -151,5 +150,228 @@ public class AdminRepository : IAdminRepository
             return true;
         }
         catch { transaction.Rollback(); throw; }
+    }
+
+    // ============== INVESTMENT PLANS CRUD ==============
+
+    public async Task<IEnumerable<InvestmentPlanDto>> GetAllPlansAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = @"
+            SELECT p.*,
+                (SELECT COUNT(*) FROM investments i 
+                 WHERE i.is_active = true AND i.daily_rate = p.daily_rate 
+                   AND i.amount >= p.min_amount AND i.amount <= p.max_amount) AS active_investments,
+                (SELECT COALESCE(SUM(i.amount), 0) FROM investments i 
+                 WHERE i.is_active = true AND i.daily_rate = p.daily_rate 
+                   AND i.amount >= p.min_amount AND i.amount <= p.max_amount) AS total_invested
+            FROM investment_plans p
+            ORDER BY p.sort_order ASC, p.created_at ASC";
+
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        return await connection.QueryAsync<InvestmentPlanDto>(sql);
+    }
+
+    public async Task<InvestmentPlanDto?> GetPlanByIdAsync(Guid planId, CancellationToken cancellationToken = default)
+    {
+        const string sql = @"
+            SELECT p.*,
+                (SELECT COUNT(*) FROM investments i 
+                 WHERE i.is_active = true AND i.daily_rate = p.daily_rate 
+                   AND i.amount >= p.min_amount AND i.amount <= p.max_amount) AS active_investments,
+                (SELECT COALESCE(SUM(i.amount), 0) FROM investments i 
+                 WHERE i.is_active = true AND i.daily_rate = p.daily_rate 
+                   AND i.amount >= p.min_amount AND i.amount <= p.max_amount) AS total_invested
+            FROM investment_plans p WHERE p.id = @PlanId";
+
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<InvestmentPlanDto>(sql, new { PlanId = planId });
+    }
+
+    public async Task<InvestmentPlan> CreatePlanAsync(CreatePlanRequest request, CancellationToken cancellationToken = default)
+    {
+        var plan = new InvestmentPlan
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name.Trim(),
+            MinAmount = request.MinAmount,
+            MaxAmount = request.MaxAmount,
+            DailyRate = request.DailyRate,
+            DurationDays = request.DurationDays,
+            IsActive = true,
+            Description = request.Description.Trim(),
+            Color = request.Color,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        // Auto-assign sort order
+        const string maxSortSql = "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM investment_plans";
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        plan.SortOrder = await connection.QuerySingleAsync<int>(maxSortSql);
+
+        const string sql = @"
+            INSERT INTO investment_plans (id, name, min_amount, max_amount, daily_rate, duration_days, is_active, sort_order, description, color, created_at, updated_at)
+            VALUES (@Id, @Name, @MinAmount, @MaxAmount, @DailyRate, @DurationDays, @IsActive, @SortOrder, @Description, @Color, @CreatedAt, @UpdatedAt)";
+
+        await connection.ExecuteAsync(sql, plan);
+        return plan;
+    }
+
+    public async Task<bool> UpdatePlanAsync(Guid planId, UpdatePlanRequest request, CancellationToken cancellationToken = default)
+    {
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        var existing = await connection.QuerySingleOrDefaultAsync<InvestmentPlan>(
+            "SELECT * FROM investment_plans WHERE id = @PlanId", new { PlanId = planId });
+        if (existing == null) return false;
+
+        const string sql = @"
+            UPDATE investment_plans SET
+                name = @Name, min_amount = @MinAmount, max_amount = @MaxAmount,
+                daily_rate = @DailyRate, duration_days = @DurationDays, is_active = @IsActive,
+                description = @Description, color = @Color, updated_at = @UpdatedAt
+            WHERE id = @PlanId";
+
+        await connection.ExecuteAsync(sql, new
+        {
+            PlanId = planId,
+            Name = request.Name?.Trim() ?? existing.Name,
+            MinAmount = request.MinAmount ?? existing.MinAmount,
+            MaxAmount = request.MaxAmount ?? existing.MaxAmount,
+            DailyRate = request.DailyRate ?? existing.DailyRate,
+            DurationDays = request.DurationDays ?? existing.DurationDays,
+            IsActive = request.IsActive ?? existing.IsActive,
+            Description = request.Description?.Trim() ?? existing.Description,
+            Color = request.Color ?? existing.Color,
+            UpdatedAt = DateTime.UtcNow
+        });
+
+        return true;
+    }
+
+    public async Task<bool> DeletePlanAsync(Guid planId, CancellationToken cancellationToken = default)
+    {
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(
+            "DELETE FROM investment_plans WHERE id = @PlanId", new { PlanId = planId });
+        return rows > 0;
+    }
+
+    // ============== ANALYTICS ==============
+
+    public async Task<AnalyticsResponse> GetAnalyticsAsync(int days = 14, CancellationToken cancellationToken = default)
+    {
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        // 1. Daily stats for the last N days
+        const string dailySql = @"
+            WITH dates AS (
+                SELECT generate_series(
+                    (CURRENT_DATE - @Days * INTERVAL '1 day')::date,
+                    CURRENT_DATE::date,
+                    '1 day'::interval
+                )::date AS d
+            )
+            SELECT 
+                TO_CHAR(dates.d, 'MM/DD') AS date,
+                COALESCE(SUM(CASE WHEN t.type = 'Deposit' THEN t.amount ELSE 0 END), 0) AS deposits,
+                COALESCE(SUM(CASE WHEN t.type = 'Withdrawal' THEN ABS(t.amount) ELSE 0 END), 0) AS withdrawals,
+                COALESCE(SUM(CASE WHEN t.type = 'Profit' THEN t.amount ELSE 0 END), 0) AS profit_paid,
+                COALESCE(SUM(CASE WHEN t.type = 'ReferralBonus' THEN t.amount ELSE 0 END), 0) AS referral_paid,
+                (SELECT COUNT(*) FROM users u WHERE u.created_at::date = dates.d) AS new_users,
+                (SELECT COUNT(*) FROM investments i WHERE i.created_at::date = dates.d) AS new_investments
+            FROM dates
+            LEFT JOIN transactions t ON t.created_at::date = dates.d
+            GROUP BY dates.d ORDER BY dates.d ASC";
+
+        var dailyStats = (await connection.QueryAsync<DailyStatPoint>(dailySql, new { Days = days })).ToList();
+
+        // 2. Plan distribution
+        const string planDistSql = @"
+            SELECT 
+                p.name, p.color,
+                COUNT(i.id) AS count,
+                COALESCE(SUM(i.amount), 0) AS total_amount
+            FROM investment_plans p
+            LEFT JOIN investments i ON i.is_active = true 
+                AND i.daily_rate = p.daily_rate 
+                AND i.amount >= p.min_amount AND i.amount <= p.max_amount
+            WHERE p.is_active = true
+            GROUP BY p.id, p.name, p.color, p.sort_order
+            ORDER BY p.sort_order";
+
+        var planDist = (await connection.QueryAsync<PlanDistribution>(planDistSql)).ToList();
+
+        // 3. Financial summary
+        const string financialSql = @"
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'Deposit' THEN amount ELSE 0 END), 0) AS total_deposits,
+                COALESCE(SUM(CASE WHEN type = 'Withdrawal' AND status = 'Completed' THEN ABS(amount) ELSE 0 END), 0) AS total_withdrawals,
+                COALESCE(SUM(CASE WHEN type = 'Profit' THEN amount ELSE 0 END), 0) AS total_profit_paid,
+                COALESCE(SUM(CASE WHEN type = 'ReferralBonus' THEN amount ELSE 0 END), 0) AS total_referral_paid,
+                COALESCE(SUM(CASE WHEN type = 'Withdrawal' AND status = 'Pending' THEN ABS(amount) ELSE 0 END), 0) AS pending_withdrawals
+            FROM transactions";
+
+        var fin = await connection.QuerySingleAsync<dynamic>(financialSql);
+
+        decimal totalDeposits = (decimal)(fin.total_deposits ?? 0m);
+        decimal totalWithdrawals = (decimal)(fin.total_withdrawals ?? 0m);
+        decimal totalProfitPaid = (decimal)(fin.total_profit_paid ?? 0m);
+        decimal totalReferralPaid = (decimal)(fin.total_referral_paid ?? 0m);
+        decimal pendingWithdrawals = (decimal)(fin.pending_withdrawals ?? 0m);
+
+        decimal activeInvestmentsTotal = await connection.QuerySingleAsync<decimal>(
+            "SELECT COALESCE(SUM(amount), 0) FROM investments WHERE is_active = true");
+
+        var financial = new FinancialSummary
+        {
+            TotalDeposits = totalDeposits,
+            TotalWithdrawals = totalWithdrawals,
+            TotalProfitPaid = totalProfitPaid,
+            TotalReferralPaid = totalReferralPaid,
+            PlatformRevenue = totalDeposits - totalProfitPaid - totalReferralPaid - totalWithdrawals,
+            PendingWithdrawals = pendingWithdrawals,
+            ActiveInvestmentsTotal = activeInvestmentsTotal
+        };
+
+        // 4. User growth
+        const string userGrowthSql = @"
+            SELECT 
+                COUNT(*) AS total_users,
+                SUM(CASE WHEN created_at >= NOW() - INTERVAL '7 days' THEN 1 ELSE 0 END) AS new_users_week,
+                SUM(CASE WHEN created_at::date = CURRENT_DATE THEN 1 ELSE 0 END) AS new_users_today
+            FROM users";
+
+        var ug = await connection.QuerySingleAsync<dynamic>(userGrowthSql);
+
+        int activeUsers7d = await connection.QuerySingleAsync<int>(
+            @"SELECT COUNT(DISTINCT user_id) FROM transactions WHERE created_at >= NOW() - INTERVAL '7 days'");
+
+        // Rank distribution
+        var rankRows = await connection.QueryAsync<(int status, int count)>(
+            "SELECT status, COUNT(*) AS count FROM users GROUP BY status ORDER BY status");
+        var rankDist = new Dictionary<string, int>();
+        foreach (var r in rankRows)
+        {
+            var rankName = r.status switch { 0 => "Bronze", 1 => "Silver", 2 => "Gold", 3 => "Platinum", _ => "Unknown" };
+            rankDist[rankName] = r.count;
+        }
+
+        var userGrowth = new UserGrowth
+        {
+            TotalUsers = (int)(ug.total_users ?? 0),
+            ActiveUsers7d = activeUsers7d,
+            NewUsersToday = (int)(ug.new_users_today ?? 0L),
+            NewUsersWeek = (int)(ug.new_users_week ?? 0L),
+            RankDistribution = rankDist
+        };
+
+        return new AnalyticsResponse
+        {
+            DailyStats = dailyStats,
+            PlanDistribution = planDist,
+            Financial = financial,
+            UserGrowth = userGrowth
+        };
     }
 }

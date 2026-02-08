@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tradyx.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c8f96d2bd14b7713533adce57a47148af05c302e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9064eb9b7f08fa927f3def220a3fd3e97c31d78d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tradyx.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tradyx.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

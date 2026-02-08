@@ -87,6 +87,23 @@ public class InvestmentController : ControllerBase
         }
     }
 
+    /// <summary>Returns all active investment plans from the database.</summary>
+    [HttpGet("plans")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetPlans(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var plans = await _investmentService.GetActivePlansAsync(cancellationToken);
+            return Ok(plans);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Investment] Error fetching plans");
+            return StatusCode(500, new { Message = "Failed to load investment plans" });
+        }
+    }
+
     [HttpGet("my")]
     [ProducesResponseType(typeof(IEnumerable<InvestmentResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyInvestments(CancellationToken cancellationToken)
