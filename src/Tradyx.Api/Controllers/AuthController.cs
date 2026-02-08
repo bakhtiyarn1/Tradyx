@@ -33,9 +33,11 @@ public class AuthController : ControllerBase
 
         try
         {
-            _logger.LogInformation("[Auth] Registration attempt for {Email}", request.Email);
+            // Extract client IP for anti-fraud tracking (S4)
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+            _logger.LogInformation("[Auth] Registration attempt for {Email} from IP {Ip}", request.Email, clientIp);
 
-            var response = await _authService.RegisterAsync(request, cancellationToken);
+            var response = await _authService.RegisterAsync(request, clientIp, cancellationToken);
 
             if (!response.Success)
             {

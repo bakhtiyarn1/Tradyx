@@ -14,15 +14,18 @@ public class AdminController : ControllerBase
 {
     private readonly IAdminRepository _adminRepository;
     private readonly IPayoutService _payoutService;
+    private readonly IWithdrawalService _withdrawalService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
         IAdminRepository adminRepository, IPayoutService payoutService,
+        IWithdrawalService withdrawalService,
         IConfiguration configuration, ILogger<AdminController> logger)
     {
         _adminRepository = adminRepository;
         _payoutService = payoutService;
+        _withdrawalService = withdrawalService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -153,6 +156,64 @@ public class AdminController : ControllerBase
         }
     }
 
+    // === WITHDRAWAL QUEUE ===
+
+    [HttpGet("withdrawals/pending")]
+    public async Task<IActionResult> GetPendingWithdrawals(CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            var pending = await _withdrawalService.GetPendingWithdrawalsAsync(cancellationToken);
+            return Ok(pending);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error fetching pending withdrawals");
+            return StatusCode(500, new { Message = "Failed to load pending withdrawals" });
+        }
+    }
+
+    [HttpPost("withdrawals/{transactionId:guid}/approve")]
+    public async Task<IActionResult> ApproveWithdrawal(Guid transactionId, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            _logger.LogWarning("[Admin] Approving withdrawal {TxId}", transactionId);
+            var (success, error) = await _withdrawalService.ApproveWithdrawalAsync(transactionId, cancellationToken);
+            if (!success) return BadRequest(new { Message = error });
+            return Ok(new { Message = "Withdrawal approved", TransactionId = transactionId });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error approving withdrawal {TxId}", transactionId);
+            return StatusCode(500, new { Message = "Failed to approve withdrawal" });
+        }
+    }
+
+    [HttpPost("withdrawals/{transactionId:guid}/reject")]
+    public async Task<IActionResult> RejectWithdrawal(
+        Guid transactionId, [FromBody] RejectWithdrawalRequest? request, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            _logger.LogWarning("[Admin] Rejecting withdrawal {TxId}: {Reason}", transactionId, request?.Reason ?? "N/A");
+            var (success, error) = await _withdrawalService.RejectWithdrawalAsync(transactionId, request?.Reason, cancellationToken);
+            if (!success) return BadRequest(new { Message = error });
+            return Ok(new { Message = "Withdrawal rejected — funds refunded", TransactionId = transactionId });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error rejecting withdrawal {TxId}", transactionId);
+            return StatusCode(500, new { Message = "Failed to reject withdrawal" });
+        }
+    }
+
     private bool IsAdmin()
     {
         var userEmail = User.FindFirstValue(ClaimTypes.Email);
@@ -162,3 +223,5 @@ public class AdminController : ControllerBase
         return isAdmin;
     }
 }
+
+public record RejectWithdrawalRequest { public string? Reason { get; init; } }

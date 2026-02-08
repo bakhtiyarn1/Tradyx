@@ -26,8 +26,8 @@ public class TransactionRepository : ITransactionRepository
     public async Task AddAsync(Transaction transaction, IDbConnection connection, IDbTransaction dbTransaction)
     {
         const string sql = @"
-            INSERT INTO transactions (id, user_id, amount, type, description, created_at)
-            VALUES (@Id, @UserId, @Amount, @Type, @Description, @CreatedAt)";
+            INSERT INTO transactions (id, user_id, amount, type, description, status, fee_amount, is_instant, wallet_address, created_at)
+            VALUES (@Id, @UserId, @Amount, @Type, @Description, @Status, @FeeAmount, @IsInstant, @WalletAddress, @CreatedAt)";
         await connection.ExecuteAsync(sql, transaction, dbTransaction);
     }
 }

@@ -32,6 +32,12 @@ public class User
     /// <summary>Cumulative team turnover across 3 referral levels.</summary>
     public decimal TeamTurnover { get; set; }
 
+    /// <summary>IP address at the time of registration.</summary>
+    public string? RegistrationIp { get; set; }
+
+    /// <summary>Flag for manual admin review (e.g., same IP as referrer).</summary>
+    public bool IsSuspicious { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public UserRank Rank => (UserRank)Status;

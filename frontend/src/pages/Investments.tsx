@@ -112,6 +112,7 @@ export default function Investments() {
             </div>
             <p className="text-sm text-gray-400 mb-1">Rate: <span className="text-white font-medium">{(inv.dailyRate * 100).toFixed(1)}%</span> daily</p>
             <p className="text-sm text-gray-400 mb-1">Daily: <span className="text-[#00ff88] font-medium">${(inv.amount * inv.dailyRate).toFixed(2)}</span></p>
+            <p className="text-sm text-gray-400 mb-1">Payouts left: <span className={`font-medium ${inv.remainingPayouts > 5 ? 'text-white' : inv.remainingPayouts > 0 ? 'text-amber-400' : 'text-gray-500'}`}>{inv.remainingPayouts} / 30</span></p>
             {inv.isActive && <div className="flex items-center gap-1.5 mt-3 text-xs text-gray-500"><Clock className="w-3 h-3"/>Next: {new Date(inv.nextPayoutAt).toLocaleString()}</div>}
           </motion.div>
         ))}

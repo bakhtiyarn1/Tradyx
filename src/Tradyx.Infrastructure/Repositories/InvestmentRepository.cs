@@ -31,8 +31,8 @@ public class InvestmentRepository : IInvestmentRepository
     public async Task AddAsync(Investment investment, IDbConnection connection, IDbTransaction transaction)
     {
         const string sql = @"
-            INSERT INTO investments (id, user_id, amount, daily_rate, created_at, next_payout_at, is_active)
-            VALUES (@Id, @UserId, @Amount, @DailyRate, @CreatedAt, @NextPayoutAt, @IsActive)";
+            INSERT INTO investments (id, user_id, amount, daily_rate, created_at, next_payout_at, is_active, remaining_payouts)
+            VALUES (@Id, @UserId, @Amount, @DailyRate, @CreatedAt, @NextPayoutAt, @IsActive, @RemainingPayouts)";
         await connection.ExecuteAsync(sql, investment, transaction);
     }
 

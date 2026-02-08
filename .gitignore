@@ -1,0 +1,25 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+
+# Local secrets — NEVER commit
+**/appsettings.Local.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.local
+.env.*.local

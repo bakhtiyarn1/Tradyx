@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     status INT NOT NULL DEFAULT 0,
     personal_turnover DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     team_turnover DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    registration_ip VARCHAR(45),
+    is_suspicious BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -23,12 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_users_invite_code ON users (invite_code) WHERE in
 
 COMMENT ON TABLE users IS 'Platform users';
 COMMENT ON COLUMN users.balance IS 'Current account balance in USD';
-COMMENT ON COLUMN users.referrer_id IS 'ID of the direct parent referrer';
-COMMENT ON COLUMN users.invite_code IS 'Unique 8-char alphanumeric invite code';
-COMMENT ON COLUMN users.referral_path IS 'Ancestor chain root→parent, e.g. grandpaId/parentId';
 COMMENT ON COLUMN users.status IS '0=Bronze, 1=Silver, 2=Gold, 3=Platinum';
-COMMENT ON COLUMN users.personal_turnover IS 'Cumulative personal investment amount';
-COMMENT ON COLUMN users.team_turnover IS 'Cumulative team turnover across 3 referral levels';
 
 -- Investments table
 CREATE TABLE IF NOT EXISTS investments (
@@ -38,11 +35,13 @@ CREATE TABLE IF NOT EXISTS investments (
     daily_rate DECIMAL(8,4) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     next_payout_at TIMESTAMP NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    remaining_payouts INT NOT NULL DEFAULT 30
 );
 
 CREATE INDEX IF NOT EXISTS idx_investments_user ON investments (user_id);
 CREATE INDEX IF NOT EXISTS idx_investments_active ON investments (is_active, next_payout_at);
+CREATE INDEX IF NOT EXISTS idx_investments_active_payouts ON investments (is_active, remaining_payouts) WHERE is_active = true AND remaining_payouts > 0;
 
 -- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (
@@ -51,13 +50,23 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount DECIMAL(18,2) NOT NULL,
     type VARCHAR(50) NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'Completed',
+    fee_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    is_instant BOOLEAN NOT NULL DEFAULT false,
+    wallet_address VARCHAR(200),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_transactions_type_valid CHECK (type IN ('Deposit', 'Withdrawal', 'Investment', 'Profit', 'ReferralBonus', 'ManualAdjustment', 'Cashback'))
+    CONSTRAINT chk_transactions_type_valid CHECK (type IN ('Deposit', 'Withdrawal', 'Investment', 'Profit', 'ReferralBonus', 'ManualAdjustment', 'Cashback')),
+    CONSTRAINT chk_transactions_status_valid CHECK (status IN ('Pending', 'Approved', 'Rejected', 'Completed'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions (type);
 CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_pending ON transactions (status, type) WHERE status = 'Pending' AND type = 'Withdrawal';
+
+COMMENT ON COLUMN transactions.status IS 'Pending/Approved/Rejected/Completed — used for Withdrawal queue';
+COMMENT ON COLUMN transactions.fee_amount IS 'Fee charged for instant withdrawals';
+COMMENT ON COLUMN transactions.is_instant IS 'True if user chose instant withdrawal';
 
 -- Notifications table
 CREATE TABLE IF NOT EXISTS notifications (
@@ -100,8 +109,6 @@ CREATE TABLE IF NOT EXISTS user_rank_history (
 
 CREATE INDEX IF NOT EXISTS idx_rank_history_user ON user_rank_history (user_id, created_at DESC);
 
-COMMENT ON TABLE user_rank_history IS 'Logs every rank promotion: Bronze→Silver→Gold→Platinum';
-
 -- ============================================================
 -- MIGRATIONS (idempotent, safe to run multiple times)
 -- ============================================================
@@ -127,7 +134,7 @@ UPDATE users u SET personal_turnover = sub.total
 FROM (SELECT user_id, COALESCE(SUM(amount), 0) AS total FROM investments GROUP BY user_id) sub
 WHERE u.id = sub.user_id AND u.personal_turnover = 0 AND sub.total > 0;
 
--- Backfill team_turnover (sum of L1-L3 referrals' personal_turnover)
+-- Backfill team_turnover
 WITH RECURSIVE team AS (
     SELECT referrer_id AS root_id, id AS member_id, 1 AS lvl FROM users WHERE referrer_id IS NOT NULL
     UNION ALL
@@ -137,7 +144,32 @@ WITH RECURSIVE team AS (
 UPDATE users u SET team_turnover = sub.total
 FROM (
     SELECT t.root_id, COALESCE(SUM(m.personal_turnover), 0) AS total
-    FROM team t JOIN users m ON m.id = t.member_id
-    GROUP BY t.root_id
+    FROM team t JOIN users m ON m.id = t.member_id GROUP BY t.root_id
 ) sub
 WHERE u.id = sub.root_id AND sub.total > 0 AND u.team_turnover = 0;
+
+-- Backfill existing transactions with status = 'Completed' (for old rows without status)
+UPDATE transactions SET status = 'Completed' WHERE status IS NULL OR status = '';
+
+-- Add remaining_payouts column if not exists (migration for existing DB)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'investments' AND column_name = 'remaining_payouts') THEN
+        ALTER TABLE investments ADD COLUMN remaining_payouts INT NOT NULL DEFAULT 30;
+    END IF;
+END $$;
+
+-- Backfill remaining_payouts for existing active investments (default 30)
+UPDATE investments SET remaining_payouts = 30
+WHERE is_active = true AND remaining_payouts = 0;
+
+-- Add anti-fraud columns to users (migration for existing DB)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'registration_ip') THEN
+        ALTER TABLE users ADD COLUMN registration_ip VARCHAR(45);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_suspicious') THEN
+        ALTER TABLE users ADD COLUMN is_suspicious BOOLEAN NOT NULL DEFAULT false;
+    END IF;
+END $$;

@@ -58,7 +58,8 @@ public class InvestmentService : IInvestmentService
                 "UPDATE users SET balance = balance - @Amount WHERE id = @UserId",
                 new { Amount = amount, UserId = userId }, transaction);
 
-            // Create investment
+            // Create investment with finite payout count
+            var payoutCount = Investment.GetDefaultPayoutCount(amount);
             var investment = new Investment
             {
                 Id = Guid.NewGuid(),
@@ -67,7 +68,8 @@ public class InvestmentService : IInvestmentService
                 DailyRate = dailyRate,
                 CreatedAt = DateTime.UtcNow,
                 NextPayoutAt = DateTime.UtcNow.AddMinutes(2),
-                IsActive = true
+                IsActive = true,
+                RemainingPayouts = payoutCount
             };
             await _investmentRepository.AddAsync(investment, connection, transaction);
 
@@ -119,7 +121,7 @@ public class InvestmentService : IInvestmentService
                 catch (Exception ex) { _logger.LogWarning(ex, "[Investment] Rank check failed for {UserId}", userId); }
             });
 
-            return InvestmentResponse.Ok(investment.Id, amount, dailyRate, investment.CreatedAt, investment.NextPayoutAt);
+            return InvestmentResponse.Ok(investment.Id, amount, dailyRate, investment.CreatedAt, investment.NextPayoutAt, investment.RemainingPayouts);
         }
         catch (Exception ex)
         {

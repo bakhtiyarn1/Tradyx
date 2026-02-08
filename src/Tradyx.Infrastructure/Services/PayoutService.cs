@@ -70,55 +70,92 @@ public class PayoutService : IPayoutService
 
     private async Task ProcessSinglePayoutAsync(Investment investment, CancellationToken cancellationToken)
     {
-        var payout = investment.Amount * investment.DailyRate;
-
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
 
         List<ReferralBonusResult> referralResults;
-        var notifMsg = $"💰 Вам начислена прибыль ${payout:F2} (ставка {investment.DailyRate * 100:F1}%)";
 
         try
         {
+            // ====== S1 FIX: Lock the investment row with FOR UPDATE SKIP LOCKED ======
+            // If another worker already locked this row, SKIP LOCKED returns null → we skip gracefully.
+            const string lockSql = @"
+                SELECT * FROM investments
+                WHERE id = @Id AND is_active = true AND next_payout_at <= NOW() AND remaining_payouts > 0
+                FOR UPDATE SKIP LOCKED";
+
+            var locked = await connection.QuerySingleOrDefaultAsync<Investment>(
+                lockSql, new { Id = investment.Id }, transaction);
+
+            if (locked == null)
+            {
+                // Already processed by another worker, or no longer eligible
+                transaction.Rollback();
+                _logger.LogDebug("[PayoutService] Skipped investment {Id} (locked/ineligible)", investment.Id);
+                return;
+            }
+
+            var payout = locked.Amount * locked.DailyRate;
+            var notifMsg = $"💰 Вам начислена прибыль ${payout:F2} (ставка {locked.DailyRate * 100:F1}%)";
+            var newRemaining = locked.RemainingPayouts - 1;
+            var contractFinished = newRemaining <= 0;
+
             // 1. Add payout to user's balance
             await connection.ExecuteAsync(
                 "UPDATE users SET balance = balance + @Amount WHERE id = @UserId",
-                new { Amount = payout, UserId = investment.UserId }, transaction);
+                new { Amount = payout, UserId = locked.UserId }, transaction);
 
             // 2. Log profit transaction
-            var profitTx = Transaction.Create(investment.UserId, payout, Transaction.Types.Profit,
-                $"Daily profit from investment ({investment.DailyRate * 100:F1}%)");
+            var profitTx = Transaction.Create(locked.UserId, payout, Transaction.Types.Profit,
+                $"Daily profit from investment ({locked.DailyRate * 100:F1}%) — {newRemaining} payouts left");
             await _transactionRepository.AddAsync(profitTx, connection, transaction);
 
             // 3. Notification for the investor
-            var notif = Notification.Create(investment.UserId, notifMsg);
+            var notif = Notification.Create(locked.UserId, notifMsg);
             await _notificationRepository.AddAsync(notif, connection, transaction);
 
             // 4. 3-LEVEL REFERRAL BONUSES (with dynamic rates)
             referralResults = await _referralService.ProcessReferralBonusAsync(
-                investment.UserId, payout, connection, transaction);
+                locked.UserId, payout, connection, transaction);
 
-            // 5. Update next payout time
-            var nextPayout = investment.NextPayoutAt.AddMinutes(2);
-            await _investmentRepository.UpdateNextPayoutAsync(investment.Id, nextPayout, connection, transaction);
+            // 5. Decrement remaining_payouts and update next payout (or deactivate)
+            if (contractFinished)
+            {
+                // Contract is exhausted → deactivate
+                await connection.ExecuteAsync(
+                    "UPDATE investments SET remaining_payouts = 0, is_active = false WHERE id = @Id",
+                    new { Id = locked.Id }, transaction);
+
+                var finishNotif = Notification.Create(locked.UserId,
+                    $"📄 Ваш инвестиционный контракт на ${locked.Amount:F2} завершён! Все {locked.RemainingPayouts} выплат получены.");
+                await _notificationRepository.AddAsync(finishNotif, connection, transaction);
+            }
+            else
+            {
+                var nextPayout = locked.NextPayoutAt.AddMinutes(2);
+                await connection.ExecuteAsync(
+                    "UPDATE investments SET next_payout_at = @NextPayoutAt, remaining_payouts = @Remaining WHERE id = @Id",
+                    new { NextPayoutAt = nextPayout, Remaining = newRemaining, Id = locked.Id }, transaction);
+            }
 
             transaction.Commit();
-            _logger.LogWarning("[PayoutService] +${Payout:F2} to user {UserId}, {RefCount} referral bonus(es)",
-                payout, investment.UserId, referralResults.Count);
+            _logger.LogWarning("[PayoutService] +${Payout:F2} to user {UserId}, remaining={Remaining}, refs={RefCount}",
+                payout, locked.UserId, newRemaining, referralResults.Count);
+
+            // Fire-and-forget: Real-time notifications + rank checks
+            _ = PushRealtimeEventsAndCheckRanks(locked.UserId, payout, notifMsg, referralResults, contractFinished, locked.Amount);
         }
         catch
         {
             transaction.Rollback();
             throw;
         }
-
-        // Fire-and-forget: Real-time notifications + rank checks
-        _ = PushRealtimeEventsAndCheckRanks(investment.UserId, payout, notifMsg, referralResults);
     }
 
     private async Task PushRealtimeEventsAndCheckRanks(
         Guid userId, decimal payout, string notifMsg,
-        List<ReferralBonusResult> referralResults)
+        List<ReferralBonusResult> referralResults,
+        bool contractFinished = false, decimal contractAmount = 0)
     {
         try
         {
@@ -131,6 +168,14 @@ public class PayoutService : IPayoutService
             await _realtime.NotifyPayoutReceived(userId, payout, $"Daily profit +${payout:F2}");
             await _realtime.NotifyTransactionCreated(userId, "Profit", payout);
             await _realtime.NotifyNewNotification(userId, notifMsg);
+
+            // Notify if the investment contract has finished
+            if (contractFinished)
+            {
+                await _realtime.NotifyInvestmentUpdated(userId);
+                await _realtime.NotifyNewNotification(userId,
+                    $"📄 Ваш инвестиционный контракт на ${contractAmount:F2} завершён!");
+            }
 
             foreach (var bonus in referralResults)
             {

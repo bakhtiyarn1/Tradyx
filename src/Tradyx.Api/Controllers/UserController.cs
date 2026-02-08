@@ -17,6 +17,7 @@ public class UserController : ControllerBase
     private readonly INotificationRepository _notificationRepository;
     private readonly IReferralService _referralService;
     private readonly IRankService _rankService;
+    private readonly IWithdrawalService _withdrawalService;
     private readonly IRealtimeNotifier _realtime;
     private readonly ILogger<UserController> _logger;
 
@@ -26,6 +27,7 @@ public class UserController : ControllerBase
         INotificationRepository notificationRepository,
         IReferralService referralService,
         IRankService rankService,
+        IWithdrawalService withdrawalService,
         IRealtimeNotifier realtime,
         ILogger<UserController> logger)
     {
@@ -34,6 +36,7 @@ public class UserController : ControllerBase
         _notificationRepository = notificationRepository;
         _referralService = referralService;
         _rankService = rankService;
+        _withdrawalService = withdrawalService;
         _realtime = realtime;
         _logger = logger;
     }
@@ -79,7 +82,9 @@ public class UserController : ControllerBase
             var response = transactions.Select(t => new TransactionResponse
             {
                 Id = t.Id, Amount = t.Amount, Type = t.Type,
-                Description = t.Description, CreatedAt = t.CreatedAt
+                Description = t.Description, Status = t.Status,
+                FeeAmount = t.FeeAmount, IsInstant = t.IsInstant,
+                CreatedAt = t.CreatedAt
             });
             return Ok(response);
         }
@@ -239,37 +244,54 @@ public class UserController : ControllerBase
             var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             return BadRequest(new { Message = string.Join(" ", errors) });
         }
-        if (request.Amount < 10) return BadRequest(new { Message = "Minimum withdrawal is $10" });
 
         try
         {
-            var (success, error) = await _userRepository.WithdrawAsync(userId.Value, request.Amount, request.WalletAddress, cancellationToken);
-            if (!success) return BadRequest(new { Message = error ?? "Withdrawal failed" });
+            var result = await _withdrawalService.RequestWithdrawalAsync(
+                userId.Value, request.Amount, request.IsInstant, request.WalletAddress, cancellationToken);
 
-            _logger.LogInformation("[Withdraw] User {UserId} withdrew ${Amount:F2}", userId, request.Amount);
+            if (!result.Success)
+                return BadRequest(new { Message = result.Error });
 
-            // Real-time: push new balance + events
-            _ = Task.Run(async () =>
+            _logger.LogInformation("[Withdraw] User {UserId}: ${Amount:F2}, instant={Instant}, status={Status}",
+                userId, request.Amount, request.IsInstant, result.Status);
+
+            return Ok(new
             {
-                try
-                {
-                    var user = await _userRepository.GetByIdAsync(userId.Value);
-                    if (user != null)
-                    {
-                        await _realtime.NotifyBalanceUpdated(userId.Value, user.Balance);
-                        await _realtime.NotifyTransactionCreated(userId.Value, "Withdrawal", -request.Amount);
-                        await _realtime.NotifyNewNotification(userId.Value, $"💸 Withdrawal ${request.Amount:F2} processed");
-                    }
-                }
-                catch { /* non-critical */ }
+                Message = result.Status == "Completed"
+                    ? $"Instant withdrawal ${result.NetAmount:F2} completed (fee ${result.Fee:F2})"
+                    : $"Withdrawal ${result.NetAmount:F2} submitted — awaiting admin approval",
+                result.TransactionId,
+                result.NetAmount,
+                result.Fee,
+                result.Status
             });
-
-            return Ok(new { Message = $"Successfully withdrew ${request.Amount:F2}", Amount = request.Amount });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Withdraw] Error for user {UserId}, amount ${Amount:F2}", userId, request.Amount);
             return StatusCode(500, new { Message = "Withdrawal failed due to an internal error" });
+        }
+    }
+
+    [HttpGet("me/withdrawal-info")]
+    public async Task<IActionResult> GetWithdrawalInfo(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
+
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+            if (user == null) return NotFound(new { Message = "User not found" });
+
+            var info = _withdrawalService.GetWithdrawalInfo(user.Status);
+            return Ok(info);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Withdraw] Error getting withdrawal info for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load withdrawal info" });
         }
     }
 
@@ -301,6 +323,6 @@ public class UserController : ControllerBase
 }
 
 public record UserProfileResponse { public Guid Id { get; init; } public string Username { get; init; } = string.Empty; public string Email { get; init; } = string.Empty; public decimal Balance { get; init; } public string InviteCode { get; init; } = string.Empty; public DateTime CreatedAt { get; init; } }
-public record TransactionResponse { public Guid Id { get; init; } public decimal Amount { get; init; } public string Type { get; init; } = string.Empty; public string Description { get; init; } = string.Empty; public DateTime CreatedAt { get; init; } }
+public record TransactionResponse { public Guid Id { get; init; } public decimal Amount { get; init; } public string Type { get; init; } = string.Empty; public string Description { get; init; } = string.Empty; public string Status { get; init; } = "Completed"; public decimal FeeAmount { get; init; } public bool IsInstant { get; init; } public DateTime CreatedAt { get; init; } }
 public record NotificationsResponse { public int UnreadCount { get; init; } public List<NotificationDto> Notifications { get; init; } = new(); }
 public record NotificationDto { public Guid Id { get; init; } public string Message { get; init; } = string.Empty; public bool IsRead { get; init; } public DateTime CreatedAt { get; init; } }

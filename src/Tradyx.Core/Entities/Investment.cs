@@ -10,6 +10,9 @@ public class Investment
     public DateTime NextPayoutAt { get; set; }
     public bool IsActive { get; set; }
 
+    /// <summary>Number of payouts remaining before this investment expires.</summary>
+    public int RemainingPayouts { get; set; }
+
     public static decimal GetDailyRate(decimal amount) => amount switch
     {
         >= 150m => 0.017m,
@@ -17,5 +20,15 @@ public class Investment
         >= 50m  => 0.011m,
         >= 20m  => 0.008m,
         _       => 0m
+    };
+
+    /// <summary>Default payout count per plan tier.</summary>
+    public static int GetDefaultPayoutCount(decimal amount) => amount switch
+    {
+        >= 150m => 30,
+        >= 100m => 30,
+        >= 50m  => 30,
+        >= 20m  => 30,
+        _       => 0
     };
 }

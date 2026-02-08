@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -29,9 +30,9 @@ public class ReferralService : IReferralService
         _logger = logger;
 
         var section = configuration.GetSection("ReferralSettings");
-        _level1Rate = decimal.TryParse(section["Level1Rate"], out var l1) ? l1 : 0.10m;
-        _level2Rate = decimal.TryParse(section["Level2Rate"], out var l2) ? l2 : 0.05m;
-        _level3Rate = decimal.TryParse(section["Level3Rate"], out var l3) ? l3 : 0.02m;
+        _level1Rate = decimal.TryParse(section["Level1Rate"], NumberStyles.Any, CultureInfo.InvariantCulture, out var l1) ? l1 : 0.10m;
+        _level2Rate = decimal.TryParse(section["Level2Rate"], NumberStyles.Any, CultureInfo.InvariantCulture, out var l2) ? l2 : 0.05m;
+        _level3Rate = decimal.TryParse(section["Level3Rate"], NumberStyles.Any, CultureInfo.InvariantCulture, out var l3) ? l3 : 0.02m;
 
         _logger.LogInformation("[Referral] Base rates: L1={L1}%, L2={L2}%, L3={L3}%",
             _level1Rate * 100, _level2Rate * 100, _level3Rate * 100);

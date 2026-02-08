@@ -9,6 +9,9 @@ using Tradyx.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load local config overrides (JWT secret, etc.) — file is in .gitignore
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);
+
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -56,6 +59,9 @@ builder.Services.AddSwaggerGen(options =>
 // Configure JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret not configured");
+if (secretKey.StartsWith("OVERRIDE_IN_"))
+    throw new InvalidOperationException(
+        "JWT Secret is a placeholder. Set it in appsettings.Local.json or environment variable JwtSettings__Secret");
 
 builder.Services.AddAuthentication(options =>
 {

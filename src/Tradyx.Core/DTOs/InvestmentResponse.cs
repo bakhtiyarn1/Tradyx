@@ -10,8 +10,9 @@ public record InvestmentResponse
     public DateTime? CreatedAt { get; init; }
     public DateTime? NextPayoutAt { get; init; }
     public bool IsActive { get; init; }
+    public int RemainingPayouts { get; init; }
 
-    public static InvestmentResponse Ok(Guid id, decimal amount, decimal dailyRate, DateTime createdAt, DateTime nextPayoutAt) => new()
+    public static InvestmentResponse Ok(Guid id, decimal amount, decimal dailyRate, DateTime createdAt, DateTime nextPayoutAt, int remainingPayouts) => new()
     {
         Success = true,
         Id = id,
@@ -19,7 +20,8 @@ public record InvestmentResponse
         DailyRate = dailyRate,
         CreatedAt = createdAt,
         NextPayoutAt = nextPayoutAt,
-        IsActive = true
+        IsActive = true,
+        RemainingPayouts = remainingPayouts
     };
 
     public static InvestmentResponse Fail(string message) => new()
@@ -36,6 +38,7 @@ public record InvestmentResponse
         DailyRate = inv.DailyRate,
         CreatedAt = inv.CreatedAt,
         NextPayoutAt = inv.NextPayoutAt,
-        IsActive = inv.IsActive
+        IsActive = inv.IsActive,
+        RemainingPayouts = inv.RemainingPayouts
     };
 }

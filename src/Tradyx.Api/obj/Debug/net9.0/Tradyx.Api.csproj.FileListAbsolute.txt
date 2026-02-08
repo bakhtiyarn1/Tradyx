@@ -58,3 +58,4 @@
 /Users/mac/Tradyx/src/Tradyx.Api/bin/Debug/net9.0/Microsoft.Extensions.Logging.Abstractions.dll
 /Users/mac/Tradyx/src/Tradyx.Api/bin/Debug/net9.0/Microsoft.Extensions.Options.dll
 /Users/mac/Tradyx/src/Tradyx.Api/bin/Debug/net9.0/Microsoft.Extensions.Primitives.dll
+/Users/mac/Tradyx/src/Tradyx.Api/bin/Debug/net9.0/appsettings.Local.json

@@ -48,8 +48,10 @@ public class UserRepository : IUserRepository
     public async Task<User> CreateAsync(User user, CancellationToken cancellationToken = default)
     {
         const string sql = @"
-            INSERT INTO users (id, username, email, password_hash, balance, referrer_id, invite_code, referral_path, created_at)
-            VALUES (@Id, @Username, @Email, @PasswordHash, @Balance, @ReferrerId, @InviteCode, @ReferralPath, @CreatedAt)
+            INSERT INTO users (id, username, email, password_hash, balance, referrer_id, invite_code, referral_path,
+                               registration_ip, is_suspicious, created_at)
+            VALUES (@Id, @Username, @Email, @PasswordHash, @Balance, @ReferrerId, @InviteCode, @ReferralPath,
+                    @RegistrationIp, @IsSuspicious, @CreatedAt)
             RETURNING *";
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         return await connection.QuerySingleAsync<User>(sql, user);
@@ -120,51 +122,4 @@ public class UserRepository : IUserRepository
         }
     }
 
-    public async Task<(bool Success, string? Error)> WithdrawAsync(Guid userId, decimal amount, string? walletAddress, CancellationToken cancellationToken = default)
-    {
-        if (amount <= 0) return (false, "Amount must be positive");
-
-        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
-        using var transaction = connection.BeginTransaction();
-
-        try
-        {
-            // Row-lock + balance check
-            const string checkSql = "SELECT balance FROM users WHERE id = @UserId FOR UPDATE";
-            var balance = await connection.QuerySingleOrDefaultAsync<decimal?>(checkSql, new { UserId = userId }, transaction);
-            if (balance == null) { transaction.Rollback(); return (false, "User not found"); }
-            if (balance < amount) { transaction.Rollback(); return (false, $"Insufficient balance. You have ${balance:F2}"); }
-
-            // Deduct balance
-            const string updateSql = "UPDATE users SET balance = balance - @Amount WHERE id = @UserId";
-            await connection.ExecuteAsync(updateSql, new { Amount = amount, UserId = userId }, transaction);
-
-            // Transaction record (negative amount = outflow)
-            var desc = string.IsNullOrEmpty(walletAddress)
-                ? $"Withdrawal of ${amount:F2}"
-                : $"Withdrawal of ${amount:F2} to {walletAddress}";
-            var tx = Transaction.Create(userId, -amount, Transaction.Types.Withdrawal, desc);
-            const string insertSql = @"
-                INSERT INTO transactions (id, user_id, amount, type, description, created_at)
-                VALUES (@Id, @UserId, @Amount, @Type, @Description, @CreatedAt)";
-            await connection.ExecuteAsync(insertSql, new { tx.Id, tx.UserId, tx.Amount, tx.Type, tx.Description, tx.CreatedAt }, transaction);
-
-            // Notification
-            var notif = Notification.Create(userId, $"💸 Вывод ${amount:F2} обработан");
-            const string notifSql = @"
-                INSERT INTO notifications (id, user_id, message, is_read, created_at)
-                VALUES (@Id, @UserId, @Message, @IsRead, @CreatedAt)";
-            await connection.ExecuteAsync(notifSql, new { notif.Id, notif.UserId, notif.Message, notif.IsRead, notif.CreatedAt }, transaction);
-
-            transaction.Commit();
-            _logger.LogInformation("[UserRepo] Withdrawal ${Amount:F2} for user {UserId}", amount, userId);
-            return (true, null);
-        }
-        catch (Exception ex)
-        {
-            transaction.Rollback();
-            _logger.LogError(ex, "[UserRepo] Withdrawal failed for user {UserId}, amount ${Amount:F2}", userId, amount);
-            throw;
-        }
-    }
 }

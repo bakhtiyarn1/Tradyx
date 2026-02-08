@@ -12,5 +12,4 @@ public interface IUserRepository
     Task<User> CreateAsync(User user, CancellationToken cancellationToken = default);
     Task<UserDashboardResponse?> GetDashboardAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<bool> DepositAsync(Guid userId, decimal amount, CancellationToken cancellationToken = default);
-    Task<(bool Success, string? Error)> WithdrawAsync(Guid userId, decimal amount, string? walletAddress, CancellationToken cancellationToken = default);
 }

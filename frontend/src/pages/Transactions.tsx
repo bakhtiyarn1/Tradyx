@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Receipt, TrendingUp, Target, Wallet, Zap, ArrowDownRight, ArrowUpRight, ChevronDown, Inbox } from 'lucide-react';
+import { Receipt, TrendingUp, Target, Wallet, Zap, ArrowDownRight, ArrowUpRight, ChevronDown, Inbox, Bolt } from 'lucide-react';
 import { userApi, type Transaction } from '../lib/api';
 
 const FILTERS = [
@@ -10,9 +10,25 @@ const FILTERS = [
   { key: 'Profit', label: 'Profits', color: 'bg-[#00d4ff]/10 text-[#00d4ff]' },
   { key: 'Investment', label: 'Investments', color: 'bg-purple-500/10 text-purple-400' },
   { key: 'ReferralBonus', label: 'Referrals', color: 'bg-amber-500/10 text-amber-400' },
+  { key: 'Cashback', label: 'Cashback', color: 'bg-yellow-500/10 text-yellow-400' },
 ] as const;
 
 const PAGE_SIZE = 20;
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, string> = {
+    Pending: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
+    Completed: 'bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/20',
+    Approved: 'bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/20',
+    Rejected: 'bg-[#ff3366]/15 text-[#ff3366] border-[#ff3366]/20',
+  };
+  const icons: Record<string, string> = { Pending: '⏳', Completed: '✅', Approved: '✅', Rejected: '❌' };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${cfg[status] || cfg.Completed}`}>
+      {icons[status] || '•'} {status}
+    </span>
+  );
+}
 
 export default function Transactions() {
   const [allTxs, setAllTxs] = useState<Transaction[]>([]);
@@ -36,6 +52,7 @@ export default function Transactions() {
     if (t === 'Investment') return <Target className="w-4 h-4" />;
     if (t === 'Deposit') return <Wallet className="w-4 h-4" />;
     if (t === 'Withdrawal') return <ArrowUpRight className="w-4 h-4" />;
+    if (t === 'Cashback') return <Bolt className="w-4 h-4" />;
     if (t === 'ManualAdjustment') return <Zap className="w-4 h-4" />;
     return <ArrowDownRight className="w-4 h-4" />;
   };
@@ -44,11 +61,11 @@ export default function Transactions() {
     if (t === 'Withdrawal') return 'bg-[#ff3366]/10 text-[#ff3366]';
     if (t === 'Profit' || t === 'ReferralBonus') return 'bg-[#00d4ff]/10 text-[#00d4ff]';
     if (t === 'Investment') return 'bg-purple-500/10 text-purple-400';
+    if (t === 'Cashback') return 'bg-yellow-500/10 text-yellow-400';
     if (t === 'ManualAdjustment') return 'bg-amber-500/10 text-amber-400';
     return 'bg-white/10 text-gray-400';
   };
 
-  // Summary
   const totalIn = allTxs.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const totalOut = allTxs.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
 
@@ -67,7 +84,6 @@ export default function Transactions() {
         </div>
       </motion.div>
 
-      {/* Filters */}
       <motion.div initial={{opacity:0,y:-10}} animate={{opacity:1,y:0}} transition={{delay:0.1}} className="flex flex-wrap gap-2">
         {FILTERS.map(f => (
           <button key={f.key} onClick={() => { setFilter(f.key); setVisibleCount(PAGE_SIZE); }}
@@ -78,7 +94,6 @@ export default function Transactions() {
         ))}
       </motion.div>
 
-      {/* List */}
       <div className="glass rounded-xl overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-12 text-center">
@@ -93,11 +108,21 @@ export default function Transactions() {
                 className="flex items-center justify-between p-4 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${color(tx.type)}`}>{icon(tx.type)}</div>
-                  <div><p className="text-sm text-white font-medium">{tx.type}{tx.type === 'ReferralBonus' ? ' (Referral)' : ''}</p><p className="text-xs text-gray-500 truncate max-w-[300px]">{tx.description}</p></div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm text-white font-medium">{tx.type}{tx.type === 'ReferralBonus' ? ' (Referral)' : ''}</p>
+                      {tx.type === 'Withdrawal' && tx.status !== 'Completed' && <StatusBadge status={tx.status} />}
+                      {tx.isInstant && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">Instant</span>}
+                    </div>
+                    <p className="text-xs text-gray-500 truncate max-w-[300px]">{tx.description}</p>
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className={`text-sm font-mono font-semibold ${tx.amount >= 0 ? 'text-[#00ff88]' : 'text-[#ff3366]'}`}>{tx.amount >= 0 ? '+' : ''}{tx.amount.toFixed(2)}</p>
-                  <p className="text-[10px] text-gray-600">{new Date(tx.createdAt).toLocaleString()}</p>
+                  <div className="flex items-center gap-2 justify-end">
+                    {tx.feeAmount > 0 && <span className="text-[10px] text-gray-500">fee ${tx.feeAmount.toFixed(2)}</span>}
+                    <p className="text-[10px] text-gray-600">{new Date(tx.createdAt).toLocaleString()}</p>
+                  </div>
                 </div>
               </motion.div>
             ))}

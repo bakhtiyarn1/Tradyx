@@ -94,9 +94,13 @@ export const userApi = {
     const { data } = await api.post('/user/me/deposit', { amount });
     return data;
   },
-  withdraw: async (amount: number, walletAddress?: string) => {
-    const { data } = await api.post('/user/me/withdraw', { amount, walletAddress });
+  withdraw: async (amount: number, isInstant: boolean, walletAddress?: string) => {
+    const { data } = await api.post('/user/me/withdraw', { amount, isInstant, walletAddress });
     return data;
+  },
+  getWithdrawalInfo: async () => {
+    const { data } = await api.get('/user/me/withdrawal-info');
+    return data as WithdrawalInfo;
   },
   getMyTeam: async () => {
     const { data } = await api.get('/user/me/team');
@@ -125,6 +129,9 @@ export const adminApi = {
   },
   triggerPayouts: async () => { const { data } = await api.post('/admin/payouts/trigger'); return data; },
   getInvestments: async (limit = 20) => { const { data } = await api.get(`/admin/investments?limit=${limit}`); return data; },
+  getPendingWithdrawals: async () => { const { data } = await api.get('/admin/withdrawals/pending'); return data as PendingWithdrawal[]; },
+  approveWithdrawal: async (txId: string) => { const { data } = await api.post(`/admin/withdrawals/${txId}/approve`); return data; },
+  rejectWithdrawal: async (txId: string, reason?: string) => { const { data } = await api.post(`/admin/withdrawals/${txId}/reject`, { reason }); return data; },
 };
 
 // Types
@@ -154,8 +161,10 @@ export interface Dashboard {
   nextPayoutAt: string | null;
   rankProgress: RankProgress | null;
 }
-export interface Transaction { id: string; amount: number; type: string; description: string; createdAt: string; }
-export interface Investment { id: string; amount: number; dailyRate: number; createdAt: string; nextPayoutAt: string; isActive: boolean; }
+export interface Transaction { id: string; amount: number; type: string; description: string; status: string; feeAmount: number; isInstant: boolean; createdAt: string; }
+export interface WithdrawalInfo { feeRate: number; maxInstant: number; minAmount: number; feeDiscount: number; }
+export interface PendingWithdrawal { id: string; userId: string; username: string; email: string; amount: number; feeAmount: number; isInstant: boolean; walletAddress: string | null; createdAt: string; }
+export interface Investment { id: string; amount: number; dailyRate: number; createdAt: string; nextPayoutAt: string; isActive: boolean; remainingPayouts: number; }
 export interface Notification { id: string; message: string; isRead: boolean; createdAt: string; }
 export interface AdminStats { totalUsers: number; totalInvested: number; totalProfitPaid: number; totalReferralPaid: number; systemReserve: number; activeInvestmentsCount: number; generatedAt: string; }
 export interface AdminUser { id: string; username: string; email: string; balance: number; investmentsCount: number; totalInvested: number; totalEarned: number; referralsCount: number; createdAt: string; }

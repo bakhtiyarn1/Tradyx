@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tradyx.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+761d433087b1c52bea5af00d4c9a46854937d647")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b6ac682835cdd3b809a4116149fb1b3aea83aeb4")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tradyx.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tradyx.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

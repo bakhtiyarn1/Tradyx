@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -243,5 +244,5 @@ public class RankService : IRankService
     };
 
     private static decimal ParseDec(string? s, decimal fallback) =>
-        decimal.TryParse(s, out var v) ? v : fallback;
+        decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 }

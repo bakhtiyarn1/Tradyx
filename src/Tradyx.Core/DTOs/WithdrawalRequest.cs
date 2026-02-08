@@ -9,4 +9,7 @@ public record WithdrawalRequest
 
     [MaxLength(200)]
     public string? WalletAddress { get; init; }
+
+    /// <summary>True = instant with fee, False = regular (pending queue).</summary>
+    public bool IsInstant { get; init; }
 }

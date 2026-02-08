@@ -27,7 +27,7 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
-    public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    public async Task<AuthResponse> RegisterAsync(RegisterRequest request, string? clientIp = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -59,6 +59,18 @@ public class AuthService : IAuthService
                     : $"{referrer.ReferralPath}/{referrer.Id}";
             }
 
+            // S4 Anti-Fraud: check if referrer has the same registration IP
+            var isSuspicious = false;
+            if (referrer != null && !string.IsNullOrEmpty(clientIp) && !string.IsNullOrEmpty(referrer.RegistrationIp))
+            {
+                if (string.Equals(referrer.RegistrationIp, clientIp, StringComparison.OrdinalIgnoreCase))
+                {
+                    isSuspicious = true;
+                    _logger.LogWarning("[Auth] SUSPICIOUS: New user {Email} has same IP ({Ip}) as referrer {ReferrerUsername}",
+                        request.Email, clientIp, referrer.Username);
+                }
+            }
+
             var user = new User
             {
                 Id = Guid.NewGuid(),
@@ -69,6 +81,8 @@ public class AuthService : IAuthService
                 ReferrerId = referrer?.Id,
                 InviteCode = User.GenerateInviteCode(),
                 ReferralPath = referralPath,
+                RegistrationIp = clientIp,
+                IsSuspicious = isSuspicious,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -77,8 +91,8 @@ public class AuthService : IAuthService
                 user.ReferrerId = null;
 
             await _userRepository.CreateAsync(user, cancellationToken);
-            _logger.LogInformation("[Auth] Registered user {Username} ({Email}), invite={InviteCode}, referrer={ReferrerId}",
-                user.Username, user.Email, user.InviteCode, user.ReferrerId);
+            _logger.LogInformation("[Auth] Registered user {Username} ({Email}), invite={InviteCode}, referrer={ReferrerId}, ip={Ip}, suspicious={Suspicious}",
+                user.Username, user.Email, user.InviteCode, user.ReferrerId, clientIp, isSuspicious);
 
             var token = GenerateJwtToken(user);
             return AuthResponse.Ok(token, new AuthUserDto
