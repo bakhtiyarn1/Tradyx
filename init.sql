@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     status INT NOT NULL DEFAULT 0,
     personal_turnover DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     team_turnover DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    telegram_id BIGINT UNIQUE,
     registration_ip VARCHAR(45),
     is_suspicious BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -64,10 +65,10 @@ CREATE INDEX IF NOT EXISTS idx_plans_active ON investment_plans (is_active, sort
 -- Seed default plans (idempotent)
 INSERT INTO investment_plans (name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
 SELECT * FROM (VALUES
-    ('Starter',   20.00,   49.99, 0.0080, 30, 1, 'Perfect for beginners', 'blue'),
-    ('Growth',    50.00,   99.99, 0.0110, 30, 2, 'Balanced risk & reward', 'purple'),
-    ('Premium',  100.00,  149.99, 0.0140, 30, 3, 'Higher daily returns', 'cyan'),
-    ('Elite',    150.00, 999999.00, 0.0170, 30, 4, 'Maximum earning potential', 'green')
+    ('Starter',   20.00,   49.99, 0.0120, 30, 1, 'Perfect for beginners — 36% monthly ROI', 'blue'),
+    ('Growth',    50.00,   99.99, 0.0150, 30, 2, 'Balanced risk & reward — 45% monthly ROI', 'purple'),
+    ('Premium',  100.00,  499.99, 0.0190, 30, 3, 'Higher daily returns — 57% monthly ROI', 'cyan'),
+    ('Elite',    500.00, 999999.00, 0.0230, 30, 4, 'Maximum earning potential — 69% monthly ROI', 'green')
 ) AS v(name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
 WHERE NOT EXISTS (SELECT 1 FROM investment_plans LIMIT 1);
 
@@ -190,6 +191,16 @@ END $$;
 -- Backfill remaining_payouts for existing active investments (default 30)
 UPDATE investments SET remaining_payouts = 30
 WHERE is_active = true AND remaining_payouts = 0;
+
+-- Add telegram_id column (migration for existing DB)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'telegram_id') THEN
+        ALTER TABLE users ADD COLUMN telegram_id BIGINT UNIQUE;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_users_telegram ON users (telegram_id) WHERE telegram_id IS NOT NULL;
 
 -- Add anti-fraud columns to users (migration for existing DB)
 DO $$

@@ -11,6 +11,7 @@ public class WithdrawalService : IWithdrawalService
 {
     private readonly IDbConnectionFactory _connectionFactory;
     private readonly IRealtimeNotifier _realtime;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<WithdrawalService> _logger;
 
     private readonly decimal _instantFeeRate;
@@ -21,11 +22,13 @@ public class WithdrawalService : IWithdrawalService
     public WithdrawalService(
         IDbConnectionFactory connectionFactory,
         IRealtimeNotifier realtime,
+        ITelegramNotifier telegram,
         IConfiguration configuration,
         ILogger<WithdrawalService> logger)
     {
         _connectionFactory = connectionFactory;
         _realtime = realtime;
+        _telegram = telegram;
         _logger = logger;
 
         var s = configuration.GetSection("WithdrawalSettings");
@@ -110,8 +113,9 @@ public class WithdrawalService : IWithdrawalService
                 _logger.LogInformation("[Withdrawal] Instant: ${Amount} (fee ${Fee}) for user {UserId} ({Rank})",
                     amount, fee, userId, rank);
 
-                // SignalR
+                // SignalR + Telegram
                 _ = PushWithdrawalEvents(userId, amount, "Completed");
+                _ = _telegram.NotifyAsync($"⚡ <b>Мгновенный вывод</b>\nСумма: <b>${amount:F2}</b> (комиссия ${fee:F2})\nСтатус: ✅ Completed");
 
                 return new WithdrawalResult(true, null, transaction.Id, amount, fee, "Completed");
             }
@@ -141,6 +145,7 @@ public class WithdrawalService : IWithdrawalService
                 _logger.LogInformation("[Withdrawal] Regular (Pending): ${Amount} for user {UserId}", amount, userId);
 
                 _ = PushWithdrawalEvents(userId, amount, "Pending");
+                _ = _telegram.NotifyAsync($"💸 <b>Заявка на вывод</b>\nСумма: <b>${amount:F2}</b>\nТип: 🐢 Regular (ожидает одобрения)");
 
                 return new WithdrawalResult(true, null, transaction.Id, amount, 0, "Pending");
             }
@@ -195,7 +200,7 @@ public class WithdrawalService : IWithdrawalService
             _logger.LogWarning("[Withdrawal] APPROVED tx {TxId} for user {UserId}, ${Amount:F2}",
                 transactionId, row.UserId, absAmount);
 
-            // SignalR: notify user
+            // SignalR + Telegram
             _ = Task.Run(async () =>
             {
                 try
@@ -208,6 +213,7 @@ public class WithdrawalService : IWithdrawalService
                 }
                 catch { /* non-critical */ }
             });
+            _ = _telegram.NotifyAsync($"✅ <b>Вывод одобрен</b>\nСумма: <b>${absAmount:F2}</b>");
 
             return (true, null);
         }
@@ -255,7 +261,7 @@ public class WithdrawalService : IWithdrawalService
             _logger.LogWarning("[Withdrawal] REJECTED tx {TxId} for user {UserId}, ${Amount:F2}, reason: {Reason}",
                 transactionId, row.UserId, absAmount, reasonLabel);
 
-            // SignalR: notify user
+            // SignalR + Telegram
             _ = Task.Run(async () =>
             {
                 try
@@ -268,6 +274,7 @@ public class WithdrawalService : IWithdrawalService
                 }
                 catch { /* non-critical */ }
             });
+            _ = _telegram.NotifyAsync($"❌ <b>Вывод отклонён</b>\nСумма: <b>${absAmount:F2}</b>\nПричина: {reasonLabel}");
 
             return (true, null);
         }

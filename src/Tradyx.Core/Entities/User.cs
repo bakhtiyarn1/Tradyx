@@ -32,6 +32,9 @@ public class User
     /// <summary>Cumulative team turnover across 3 referral levels.</summary>
     public decimal TeamTurnover { get; set; }
 
+    /// <summary>Telegram user ID for bot-based authentication.</summary>
+    public long? TelegramId { get; set; }
+
     /// <summary>IP address at the time of registration.</summary>
     public string? RegistrationIp { get; set; }
 

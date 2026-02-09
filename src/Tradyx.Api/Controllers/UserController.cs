@@ -19,6 +19,7 @@ public class UserController : ControllerBase
     private readonly IRankService _rankService;
     private readonly IWithdrawalService _withdrawalService;
     private readonly IRealtimeNotifier _realtime;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<UserController> _logger;
 
     public UserController(
@@ -29,6 +30,7 @@ public class UserController : ControllerBase
         IRankService rankService,
         IWithdrawalService withdrawalService,
         IRealtimeNotifier realtime,
+        ITelegramNotifier telegram,
         ILogger<UserController> logger)
     {
         _userRepository = userRepository;
@@ -38,6 +40,7 @@ public class UserController : ControllerBase
         _rankService = rankService;
         _withdrawalService = withdrawalService;
         _realtime = realtime;
+        _telegram = telegram;
         _logger = logger;
     }
 
@@ -218,6 +221,13 @@ public class UserController : ControllerBase
                         await _realtime.NotifyBalanceUpdated(userId.Value, user.Balance);
                         await _realtime.NotifyTransactionCreated(userId.Value, "Deposit", request.Amount);
                         await _realtime.NotifyNewNotification(userId.Value, $"💳 Deposit ${request.Amount:F2} credited");
+
+                        // Telegram admin notification
+                        await _telegram.NotifyAsync(
+                            $"💳 <b>Новый депозит</b>\n\n" +
+                            $"👤 Пользователь: <code>{user.Username}</code>\n" +
+                            $"💰 Сумма: <b>+${request.Amount:F2}</b>\n" +
+                            $"💼 Баланс: <b>${user.Balance:F2}</b>");
                     }
                 }
                 catch { /* non-critical — don't fail the HTTP response */ }

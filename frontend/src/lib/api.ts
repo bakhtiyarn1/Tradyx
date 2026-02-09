@@ -63,6 +63,14 @@ export const authApi = {
     const { data } = await api.post('/auth/register', { username, email, password, referrerCode });
     return data;
   },
+  telegramInit: async (refCode?: string) => {
+    const { data } = await api.post(`/auth/telegram/init${refCode ? `?ref_code=${refCode}` : ''}`);
+    return data as { token: string; botUrl: string };
+  },
+  telegramCheck: async (token: string) => {
+    const { data } = await api.get(`/auth/telegram/check?token=${token}`);
+    return data as { confirmed: boolean; jwtToken?: string; user?: User };
+  },
 };
 
 export const userApi = {

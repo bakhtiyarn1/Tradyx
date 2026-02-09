@@ -45,16 +45,31 @@ public class UserRepository : IUserRepository
         return await connection.QuerySingleOrDefaultAsync<User>(sql, new { InviteCode = inviteCode });
     }
 
+    public async Task<User?> GetByTelegramIdAsync(long telegramId, CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT * FROM users WHERE telegram_id = @TelegramId";
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<User>(sql, new { TelegramId = telegramId });
+    }
+
     public async Task<User> CreateAsync(User user, CancellationToken cancellationToken = default)
     {
         const string sql = @"
             INSERT INTO users (id, username, email, password_hash, balance, referrer_id, invite_code, referral_path,
-                               registration_ip, is_suspicious, created_at)
+                               telegram_id, registration_ip, is_suspicious, created_at)
             VALUES (@Id, @Username, @Email, @PasswordHash, @Balance, @ReferrerId, @InviteCode, @ReferralPath,
-                    @RegistrationIp, @IsSuspicious, @CreatedAt)
+                    @TelegramId, @RegistrationIp, @IsSuspicious, @CreatedAt)
             RETURNING *";
         using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
         return await connection.QuerySingleAsync<User>(sql, user);
+    }
+
+    public async Task<bool> LinkTelegramAsync(Guid userId, long telegramId, CancellationToken cancellationToken = default)
+    {
+        const string sql = "UPDATE users SET telegram_id = @TelegramId WHERE id = @UserId AND telegram_id IS NULL";
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(sql, new { TelegramId = telegramId, UserId = userId });
+        return rows > 0;
     }
 
     public async Task<UserDashboardResponse?> GetDashboardAsync(Guid userId, CancellationToken cancellationToken = default)

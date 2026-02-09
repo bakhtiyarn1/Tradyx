@@ -89,4 +89,61 @@ public class AuthController : ControllerBase
             return StatusCode(500, LoginResponse.Fail("An internal error occurred. Please try again."));
         }
     }
+
+    // ── Telegram Auth Flow ───────────────────────────────────────────
+
+    /// <summary>Step 1: Frontend calls this to get a deeplink URL for Telegram bot.</summary>
+    [HttpPost("telegram/init")]
+    [ProducesResponseType(typeof(TelegramAuthInitResponse), StatusCodes.Status200OK)]
+    public IActionResult TelegramInit([FromQuery] string? ref_code)
+    {
+        try
+        {
+            var response = _authService.InitTelegramAuth(ref_code);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Telegram init error");
+            return StatusCode(500, new { message = "Internal error" });
+        }
+    }
+
+    /// <summary>Step 2: Bot calls this to confirm auth token with Telegram user data.</summary>
+    [HttpPost("telegram/confirm")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> TelegramConfirm(
+        [FromBody] TelegramAuthConfirmRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var success = await _authService.ConfirmTelegramAuthAsync(request, clientIp, cancellationToken);
+            return success ? Ok(new { success = true }) : BadRequest(new { success = false, message = "Invalid or expired token" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Telegram confirm error");
+            return StatusCode(500, new { message = "Internal error" });
+        }
+    }
+
+    /// <summary>Step 3: Frontend polls this to check if auth is confirmed.</summary>
+    [HttpGet("telegram/check")]
+    [ProducesResponseType(typeof(TelegramAuthCheckResponse), StatusCodes.Status200OK)]
+    public IActionResult TelegramCheck([FromQuery] string token)
+    {
+        try
+        {
+            var response = _authService.CheckTelegramAuth(token);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Auth] Telegram check error");
+            return StatusCode(500, new { message = "Internal error" });
+        }
+    }
 }

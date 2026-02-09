@@ -14,6 +14,7 @@ public class InvestmentService : IInvestmentService
     private readonly TransactionRepository _transactionRepository;
     private readonly NotificationRepository _notificationRepository;
     private readonly IRankService _rankService;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<InvestmentService> _logger;
 
     public InvestmentService(
@@ -22,6 +23,7 @@ public class InvestmentService : IInvestmentService
         TransactionRepository transactionRepository,
         NotificationRepository notificationRepository,
         IRankService rankService,
+        ITelegramNotifier telegram,
         ILogger<InvestmentService> logger)
     {
         _connectionFactory = connectionFactory;
@@ -29,6 +31,7 @@ public class InvestmentService : IInvestmentService
         _transactionRepository = transactionRepository;
         _notificationRepository = notificationRepository;
         _rankService = rankService;
+        _telegram = telegram;
         _logger = logger;
     }
 
@@ -127,6 +130,10 @@ public class InvestmentService : IInvestmentService
             transaction.Commit();
             _logger.LogInformation("[Investment] User {UserId} invested ${Amount} in plan {Plan} at {Rate}%",
                 userId, amount, plan.Name, plan.DailyRate * 100);
+
+            // Telegram notification
+            _ = _telegram.NotifyAsync(
+                $"📈 <b>Новая инвестиция</b>\nПлан: {plan.Name}\nСумма: <b>${amount:F2}</b>\nСтавка: {plan.DailyRate * 100:F1}%/день\nДоход/день: ${amount * plan.DailyRate:F2}");
 
             // Check rank upgrade after commit (fire-and-forget)
             _ = Task.Run(async () =>

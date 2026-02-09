@@ -1,0 +1,15 @@
+{
+  "name": "tradyx-bot",
+  "version": "1.0.0",
+  "description": "Tradyx Telegram Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7"
+  }
+}

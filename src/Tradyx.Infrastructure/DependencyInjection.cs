@@ -39,6 +39,9 @@ public static class DependencyInjection
         services.AddScoped<IWithdrawalService, WithdrawalService>();
         services.AddScoped<IPayoutService, PayoutService>();
 
+        // Telegram
+        services.AddSingleton<ITelegramNotifier, TelegramNotifierService>();
+
         // Background Services
         services.AddHostedService<PayoutWorker>();
 

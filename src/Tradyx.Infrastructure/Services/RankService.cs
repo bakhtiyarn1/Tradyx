@@ -12,6 +12,7 @@ public class RankService : IRankService
 {
     private readonly IDbConnectionFactory _connectionFactory;
     private readonly IRealtimeNotifier _realtime;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<RankService> _logger;
 
     // Thresholds from config
@@ -27,11 +28,13 @@ public class RankService : IRankService
     public RankService(
         IDbConnectionFactory connectionFactory,
         IRealtimeNotifier realtime,
+        ITelegramNotifier telegram,
         IConfiguration configuration,
         ILogger<RankService> logger)
     {
         _connectionFactory = connectionFactory;
         _realtime = realtime;
+        _telegram = telegram;
         _logger = logger;
 
         var r = configuration.GetSection("RankSettings");
@@ -109,7 +112,7 @@ public class RankService : IRankService
             _logger.LogWarning("[Rank] User {UserId} upgraded: {Old} → {New}",
                 userId, currentRank, newRank);
 
-            // SignalR push (fire-and-forget)
+            // SignalR + Telegram push (fire-and-forget)
             _ = Task.Run(async () =>
             {
                 try
@@ -117,6 +120,17 @@ public class RankService : IRankService
                     await _realtime.NotifyStatusUpgraded(userId, (int)currentRank, (int)newRank, RankNames[(int)newRank]);
                     await _realtime.NotifyNewNotification(userId,
                         $"🏆 Status upgraded to {RankNames[(int)newRank]}!");
+
+                    // Telegram: rank upgrade
+                    using var c = await _connectionFactory.CreateConnectionAsync();
+                    var username = await c.QuerySingleOrDefaultAsync<string>(
+                        "SELECT username FROM users WHERE id = @Id", new { Id = userId });
+                    await _telegram.NotifyAsync(
+                        $"🏆 <b>Повышение статуса</b>\n\n" +
+                        $"👤 <code>{username ?? userId.ToString()}</code>\n" +
+                        $"📊 {RankNames[(int)currentRank]} → <b>{RankNames[(int)newRank]}</b>\n" +
+                        $"💎 Личный оборот: ${user.PersonalTurnover:F2}\n" +
+                        $"👥 Командный оборот: ${user.TeamTurnover:F2}");
                 }
                 catch { /* non-critical */ }
             });

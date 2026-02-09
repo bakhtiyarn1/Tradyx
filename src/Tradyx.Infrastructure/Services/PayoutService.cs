@@ -15,6 +15,7 @@ public class PayoutService : IPayoutService
     private readonly IReferralService _referralService;
     private readonly IRankService _rankService;
     private readonly IRealtimeNotifier _realtime;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<PayoutService> _logger;
 
     public PayoutService(
@@ -25,6 +26,7 @@ public class PayoutService : IPayoutService
         IReferralService referralService,
         IRankService rankService,
         IRealtimeNotifier realtime,
+        ITelegramNotifier telegram,
         ILogger<PayoutService> logger)
     {
         _connectionFactory = connectionFactory;
@@ -34,6 +36,7 @@ public class PayoutService : IPayoutService
         _referralService = referralService;
         _rankService = rankService;
         _realtime = realtime;
+        _telegram = telegram;
         _logger = logger;
     }
 
@@ -161,13 +164,20 @@ public class PayoutService : IPayoutService
         {
             using var conn = await _connectionFactory.CreateConnectionAsync();
 
-            var newBalance = await conn.QuerySingleAsync<decimal>(
-                "SELECT balance FROM users WHERE id = @UserId", new { UserId = userId });
+            var user = await conn.QuerySingleOrDefaultAsync<(string Username, decimal Balance)>(
+                "SELECT username, balance FROM users WHERE id = @UserId", new { UserId = userId });
 
-            await _realtime.NotifyBalanceUpdated(userId, newBalance);
+            await _realtime.NotifyBalanceUpdated(userId, user.Balance);
             await _realtime.NotifyPayoutReceived(userId, payout, $"Daily profit +${payout:F2}");
             await _realtime.NotifyTransactionCreated(userId, "Profit", payout);
             await _realtime.NotifyNewNotification(userId, notifMsg);
+
+            // Telegram: daily payout
+            await _telegram.NotifyAsync(
+                $"💰 <b>Выплата профита</b>\n\n" +
+                $"👤 <code>{user.Username}</code>\n" +
+                $"📈 Профит: <b>+${payout:F2}</b>\n" +
+                $"💼 Баланс: <b>${user.Balance:F2}</b>");
 
             // Notify if the investment contract has finished
             if (contractFinished)
@@ -175,20 +185,35 @@ public class PayoutService : IPayoutService
                 await _realtime.NotifyInvestmentUpdated(userId);
                 await _realtime.NotifyNewNotification(userId,
                     $"📄 Ваш инвестиционный контракт на ${contractAmount:F2} завершён!");
+
+                // Telegram: contract finished
+                await _telegram.NotifyAsync(
+                    $"📄 <b>Контракт завершён</b>\n\n" +
+                    $"👤 <code>{user.Username}</code>\n" +
+                    $"💵 Сумма контракта: <b>${contractAmount:F2}</b>\n" +
+                    $"✅ Все выплаты получены");
             }
 
             foreach (var bonus in referralResults)
             {
                 try
                 {
-                    var refBalance = await conn.QuerySingleAsync<decimal>(
-                        "SELECT balance FROM users WHERE id = @UserId", new { UserId = bonus.RecipientId });
-                    await _realtime.NotifyBalanceUpdated(bonus.RecipientId, refBalance);
+                    var refUser = await conn.QuerySingleOrDefaultAsync<(string Username, decimal Balance)>(
+                        "SELECT username, balance FROM users WHERE id = @UserId", new { UserId = bonus.RecipientId });
+                    await _realtime.NotifyBalanceUpdated(bonus.RecipientId, refUser.Balance);
                     await _realtime.NotifyPayoutReceived(bonus.RecipientId, bonus.Amount,
                         $"L{bonus.Level} referral bonus ({bonus.Rate * 100:F0}%)");
                     await _realtime.NotifyTransactionCreated(bonus.RecipientId, "ReferralBonus", bonus.Amount);
                     await _realtime.NotifyNewNotification(bonus.RecipientId,
                         $"🎁 L{bonus.Level} бонус +${bonus.Amount:F2} ({bonus.Rate * 100:F0}%)");
+
+                    // Telegram: referral bonus
+                    await _telegram.NotifyAsync(
+                        $"🎁 <b>Реферальный бонус</b>\n\n" +
+                        $"👤 Получатель: <code>{refUser.Username}</code>\n" +
+                        $"🔗 Уровень: L{bonus.Level}\n" +
+                        $"💰 Бонус: <b>+${bonus.Amount:F2}</b> ({bonus.Rate * 100:F1}%)\n" +
+                        $"💼 Баланс: <b>${refUser.Balance:F2}</b>");
 
                     // Check rank for each bonus recipient too
                     await _rankService.CheckAndUpgradeStatusAsync(bonus.RecipientId);

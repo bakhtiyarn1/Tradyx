@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -15,15 +16,31 @@ public class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IConfiguration _configuration;
+    private readonly ITelegramNotifier _telegram;
     private readonly ILogger<AuthService> _logger;
+
+    /// <summary>In-memory store for pending Telegram auth tokens. Expires after 5 min.</summary>
+    private static readonly ConcurrentDictionary<string, TelegramPendingAuth> _pendingAuths = new();
+
+    private class TelegramPendingAuth
+    {
+        public string Token { get; set; } = "";
+        public string? ReferrerCode { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        // Set after bot confirms:
+        public bool Confirmed { get; set; }
+        public string? JwtToken { get; set; }
+        public AuthUserDto? User { get; set; }
+    }
 
     public AuthService(
         IUserRepository userRepository, IPasswordHasher passwordHasher,
-        IConfiguration configuration, ILogger<AuthService> logger)
+        IConfiguration configuration, ITelegramNotifier telegram, ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
         _passwordHasher = passwordHasher;
         _configuration = configuration;
+        _telegram = telegram;
         _logger = logger;
     }
 
@@ -94,6 +111,15 @@ public class AuthService : IAuthService
             _logger.LogInformation("[Auth] Registered user {Username} ({Email}), invite={InviteCode}, referrer={ReferrerId}, ip={Ip}, suspicious={Suspicious}",
                 user.Username, user.Email, user.InviteCode, user.ReferrerId, clientIp, isSuspicious);
 
+            // Telegram admin notification
+            _ = _telegram.NotifyAsync(
+                $"👤 <b>Новый пользователь</b>\n\n" +
+                $"📛 Username: <code>{user.Username}</code>\n" +
+                $"📧 Email: <code>{user.Email}</code>\n" +
+                $"🔗 Реферер: {(referrer != null ? $"<code>{referrer.Username}</code>" : "—")}\n" +
+                $"🔑 Invite code: <code>{user.InviteCode}</code>" +
+                (isSuspicious ? "\n⚠️ <b>ПОДОЗРИТЕЛЬНЫЙ</b> (совпадение IP с реферером)" : ""));
+
             var token = GenerateJwtToken(user);
             return AuthResponse.Ok(token, new AuthUserDto
             {
@@ -143,6 +169,167 @@ public class AuthService : IAuthService
             throw;
         }
     }
+
+    // ── Telegram Auth Flow ───────────────────────────────────────────
+
+    public TelegramAuthInitResponse InitTelegramAuth(string? referrerCode = null)
+    {
+        // Cleanup expired tokens
+        var expired = _pendingAuths.Where(kv => kv.Value.ExpiresAt < DateTime.UtcNow).Select(kv => kv.Key).ToList();
+        foreach (var key in expired) _pendingAuths.TryRemove(key, out _);
+
+        var token = Guid.NewGuid().ToString("N")[..16]; // 16-char hex token
+        var botUsername = _configuration["Telegram:BotUsername"] ?? "TradyxAI_bot";
+
+        var pending = new TelegramPendingAuth
+        {
+            Token = token,
+            ReferrerCode = referrerCode,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5)
+        };
+
+        _pendingAuths[token] = pending;
+
+        var startParam = string.IsNullOrEmpty(referrerCode)
+            ? $"auth_{token}"
+            : $"auth_{token}_ref_{referrerCode}";
+
+        _logger.LogInformation("[TgAuth] Init token {Token}, ref={Ref}", token, referrerCode);
+
+        return new TelegramAuthInitResponse
+        {
+            Token = token,
+            BotUrl = $"https://t.me/{botUsername}?start={startParam}"
+        };
+    }
+
+    public async Task<bool> ConfirmTelegramAuthAsync(TelegramAuthConfirmRequest request, string? clientIp = null, CancellationToken cancellationToken = default)
+    {
+        // Verify internal secret
+        var expectedSecret = _configuration["Telegram:InternalSecret"] ?? "tradyx-internal-secret";
+        if (request.Secret != expectedSecret)
+        {
+            _logger.LogWarning("[TgAuth] Invalid internal secret for token {Token}", request.Token);
+            return false;
+        }
+
+        if (!_pendingAuths.TryGetValue(request.Token, out var pending) || pending.ExpiresAt < DateTime.UtcNow)
+        {
+            _logger.LogWarning("[TgAuth] Token {Token} not found or expired", request.Token);
+            return false;
+        }
+
+        try
+        {
+            // Check if user exists by telegram_id
+            var user = await _userRepository.GetByTelegramIdAsync(request.TelegramId, cancellationToken);
+
+            if (user == null)
+            {
+                // Auto-register with Telegram data
+                var username = !string.IsNullOrEmpty(request.TelegramUsername)
+                    ? request.TelegramUsername
+                    : $"tg_{request.TelegramId}";
+
+                // Ensure unique username
+                var existing = await _userRepository.GetByUsernameAsync(username, cancellationToken);
+                if (existing != null)
+                    username = $"{username}_{Guid.NewGuid().ToString("N")[..4]}";
+
+                // Use referrer code from the pending auth (set during init) or from the confirm request
+                var refCode = request.ReferrerCode ?? pending.ReferrerCode;
+
+                // Resolve referrer
+                User? referrer = null;
+                if (!string.IsNullOrEmpty(refCode))
+                {
+                    referrer = await _userRepository.GetByInviteCodeAsync(refCode, cancellationToken)
+                            ?? await _userRepository.GetByUsernameAsync(refCode, cancellationToken);
+                }
+
+                string? referralPath = null;
+                if (referrer != null)
+                {
+                    referralPath = string.IsNullOrEmpty(referrer.ReferralPath)
+                        ? referrer.Id.ToString()
+                        : $"{referrer.ReferralPath}/{referrer.Id}";
+                }
+
+                user = new User
+                {
+                    Id = Guid.NewGuid(),
+                    Username = username,
+                    Email = $"tg_{request.TelegramId}@telegram.user",
+                    PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString()), // random pw
+                    Balance = 0,
+                    TelegramId = request.TelegramId,
+                    ReferrerId = referrer?.Id,
+                    InviteCode = User.GenerateInviteCode(),
+                    ReferralPath = referralPath,
+                    RegistrationIp = clientIp,
+                    IsSuspicious = false,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                user = await _userRepository.CreateAsync(user, cancellationToken);
+                _logger.LogInformation("[TgAuth] Auto-registered Telegram user {Username} (tg:{TgId})", user.Username, request.TelegramId);
+
+                // Telegram admin notification
+                _ = _telegram.NotifyAsync(
+                    $"👤 <b>Новый пользователь (Telegram)</b>\n\n" +
+                    $"📛 Username: <code>{user.Username}</code>\n" +
+                    $"📱 Telegram: {(!string.IsNullOrEmpty(request.TelegramUsername) ? $"@{request.TelegramUsername}" : $"ID {request.TelegramId}")}\n" +
+                    $"🔗 Реферер: {(referrer != null ? $"<code>{referrer.Username}</code>" : "—")}\n" +
+                    $"🔑 Invite code: <code>{user.InviteCode}</code>");
+            }
+
+            // Generate JWT
+            var jwt = GenerateJwtToken(user);
+
+            // Mark pending auth as confirmed
+            pending.Confirmed = true;
+            pending.JwtToken = jwt;
+            pending.User = new AuthUserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Balance = user.Balance
+            };
+
+            _logger.LogInformation("[TgAuth] Confirmed token {Token} for user {Username}", request.Token, user.Username);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TgAuth] Error confirming token {Token}", request.Token);
+            return false;
+        }
+    }
+
+    public TelegramAuthCheckResponse CheckTelegramAuth(string token)
+    {
+        if (!_pendingAuths.TryGetValue(token, out var pending) || pending.ExpiresAt < DateTime.UtcNow)
+        {
+            return new TelegramAuthCheckResponse { Confirmed = false };
+        }
+
+        if (pending.Confirmed)
+        {
+            // Remove after successful check (one-time use)
+            _pendingAuths.TryRemove(token, out _);
+            return new TelegramAuthCheckResponse
+            {
+                Confirmed = true,
+                JwtToken = pending.JwtToken,
+                User = pending.User
+            };
+        }
+
+        return new TelegramAuthCheckResponse { Confirmed = false };
+    }
+
+    // ── JWT ──────────────────────────────────────────────────────────
 
     private string GenerateJwtToken(User user)
     {
