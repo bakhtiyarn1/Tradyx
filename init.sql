@@ -65,10 +65,10 @@ CREATE INDEX IF NOT EXISTS idx_plans_active ON investment_plans (is_active, sort
 -- Seed default plans (idempotent)
 INSERT INTO investment_plans (name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
 SELECT * FROM (VALUES
-    ('Starter',   20.00,   49.99, 0.0120, 30, 1, 'Perfect for beginners — 36% monthly ROI', 'blue'),
-    ('Growth',    50.00,   99.99, 0.0150, 30, 2, 'Balanced risk & reward — 45% monthly ROI', 'purple'),
-    ('Premium',  100.00,  499.99, 0.0190, 30, 3, 'Higher daily returns — 57% monthly ROI', 'cyan'),
-    ('Elite',    500.00, 999999.00, 0.0230, 30, 4, 'Maximum earning potential — 69% monthly ROI', 'green')
+    ('Starter',   20.00,    99.99, 0.0050,  45, 1, 'Low entry, steady growth — 22.5% total ROI over 45 days', 'blue'),
+    ('Growth',   100.00,   499.99, 0.0065,  60, 2, 'Balanced risk & reward — 39% total ROI over 60 days', 'purple'),
+    ('Premium',  500.00,  1999.99, 0.0075,  90, 3, 'Higher returns, longer term — 67.5% total ROI over 90 days', 'cyan'),
+    ('Elite',   2000.00, 999999.00, 0.0085, 120, 4, 'Maximum potential — 102% total ROI over 120 days', 'green')
 ) AS v(name, min_amount, max_amount, daily_rate, duration_days, sort_order, description, color)
 WHERE NOT EXISTS (SELECT 1 FROM investment_plans LIMIT 1);
 

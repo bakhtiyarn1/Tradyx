@@ -305,6 +305,24 @@ public class UserController : ControllerBase
         }
     }
 
+    [HttpGet("me/referral-qualification")]
+    public async Task<IActionResult> GetReferralQualification(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
+
+        try
+        {
+            var qual = await _withdrawalService.GetReferralQualificationAsync(userId.Value, cancellationToken);
+            return Ok(qual);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error getting referral qualification for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load referral qualification" });
+        }
+    }
+
     [HttpGet("me/team")]
     public async Task<IActionResult> GetMyTeam(CancellationToken cancellationToken)
     {

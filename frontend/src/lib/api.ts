@@ -110,6 +110,10 @@ export const userApi = {
     const { data } = await api.get('/user/me/withdrawal-info');
     return data as WithdrawalInfo;
   },
+  getReferralQualification: async () => {
+    const { data } = await api.get('/user/me/referral-qualification');
+    return data as ReferralQualification;
+  },
   getMyTeam: async () => {
     const { data } = await api.get('/user/me/team');
     return data;
@@ -128,6 +132,10 @@ export const investmentApi = {
   getPlans: async () => {
     const { data } = await api.get('/investment/plans');
     return data as InvestmentPlanPublic[];
+  },
+  earlyExit: async (investmentId: string) => {
+    const { data } = await api.post(`/investment/${investmentId}/early-exit`);
+    return data as { success: boolean; returnedAmount: number; fee: number; message: string };
   },
 };
 
@@ -183,6 +191,7 @@ export interface Dashboard {
 }
 export interface Transaction { id: string; amount: number; type: string; description: string; status: string; feeAmount: number; isInstant: boolean; createdAt: string; }
 export interface WithdrawalInfo { feeRate: number; maxInstant: number; minAmount: number; feeDiscount: number; }
+export interface ReferralQualification { activeReferrals: number; required: number; qualified: boolean; }
 export interface PendingWithdrawal { id: string; userId: string; username: string; email: string; amount: number; feeAmount: number; isInstant: boolean; walletAddress: string | null; createdAt: string; }
 export interface Investment { id: string; amount: number; dailyRate: number; createdAt: string; nextPayoutAt: string; isActive: boolean; remainingPayouts: number; }
 export interface Notification { id: string; message: string; isRead: boolean; createdAt: string; }

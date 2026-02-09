@@ -124,6 +124,34 @@ public class InvestmentController : ControllerBase
         }
     }
 
+    /// <summary>Early exit from an active investment (with fee, after lock period).</summary>
+    [HttpPost("{investmentId}/early-exit")]
+    public async Task<IActionResult> EarlyExit(Guid investmentId, CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
+
+        try
+        {
+            var result = await _investmentService.RequestEarlyExitAsync(userId.Value, investmentId, cancellationToken);
+            if (!result.Success)
+                return BadRequest(new { message = result.Error });
+
+            return Ok(new
+            {
+                success = true,
+                returnedAmount = result.ReturnedAmount,
+                fee = result.Fee,
+                message = $"Investment closed. ${result.ReturnedAmount:F2} returned (fee ${result.Fee:F2})"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Investment] Early exit error for {UserId}, inv {InvId}", userId, investmentId);
+            return StatusCode(500, new { message = "Internal error. Try again." });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);

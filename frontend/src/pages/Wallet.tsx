@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, X, CheckCircle2, TrendingUp, TrendingDown, Clock, Zap, Target, Receipt, AlertTriangle, Timer, Bolt } from 'lucide-react';
+import { Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, X, CheckCircle2, TrendingUp, TrendingDown, Clock, Zap, Target, Receipt, AlertTriangle, Timer, Bolt, Users, Lock, ShieldCheck } from 'lucide-react';
 import { userApi } from '../lib/api';
-import type { Dashboard, Transaction, WithdrawalInfo } from '../lib/api';
+import type { Dashboard, Transaction, WithdrawalInfo, ReferralQualification } from '../lib/api';
 import SlotMachineCounter from '../components/SlotMachineCounter';
 import { useSounds } from '../hooks/useSounds';
 import { useToast } from '../lib/toast';
@@ -113,7 +113,7 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
 }
 
 /* ─── Withdraw Modal ─── */
-function WithdrawModal({ onClose, onSuccess, balance }: { onClose: () => void; onSuccess: () => void; balance: number }) {
+function WithdrawModal({ onClose, onSuccess, balance, refQual }: { onClose: () => void; onSuccess: () => void; balance: number; refQual: ReferralQualification | null }) {
   const [amount, setAmount] = useState('');
   const [wallet, setWallet] = useState('');
   const [isInstant, setIsInstant] = useState(false);
@@ -124,6 +124,8 @@ function WithdrawModal({ onClose, onSuccess, balance }: { onClose: () => void; o
   const [wdInfo, setWdInfo] = useState<WithdrawalInfo | null>(null);
   const { playSuccess } = useSounds();
   const toast = useToast();
+
+  const isBlocked = refQual !== null && !refQual.qualified;
 
   useEffect(() => { userApi.getWithdrawalInfo().then(setWdInfo).catch(() => {}); }, []);
 
@@ -181,8 +183,46 @@ function WithdrawModal({ onClose, onSuccess, balance }: { onClose: () => void; o
           </motion.div>
         ) : (
           <>
+            {/* Referral Qualification Blocker */}
+            {isBlocked && refQual && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-5 p-4 rounded-xl bg-[#ff3366]/5 border border-[#ff3366]/15"
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Lock className="w-4 h-4 text-[#ff3366]" />
+                  <span className="text-sm font-semibold text-[#ff3366]">Withdrawal Locked</span>
+                </div>
+                <p className="text-xs text-gray-400 mb-3">
+                  You need at least {refQual.required} active referrals (with investments) to withdraw funds.
+                </p>
+                {/* Progress dots */}
+                <div className="flex items-center gap-2 mb-2">
+                  {Array.from({ length: refQual.required }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border transition-all ${
+                        idx < refQual.activeReferrals
+                          ? 'bg-[#00ff88]/15 border-[#00ff88]/30 text-[#00ff88]'
+                          : 'bg-white/5 border-white/10 text-gray-600'
+                      }`}
+                    >
+                      {idx < refQual.activeReferrals ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
+                    </div>
+                  ))}
+                  <span className="text-xs text-gray-400 ml-1">
+                    {refQual.activeReferrals}/{refQual.required} active
+                  </span>
+                </div>
+                <Link to="/referrals" className="text-xs text-primary-400 hover:text-[#00ff88] transition-colors">
+                  Invite referrals to unlock withdrawals →
+                </Link>
+              </motion.div>
+            )}
+
             {/* Mode Toggle */}
-            <div className="grid grid-cols-2 gap-2 mb-5">
+            <div className={`grid grid-cols-2 gap-2 mb-5 ${isBlocked ? 'opacity-50 pointer-events-none' : ''}`}>
               {[
                 { instant: false, icon: Timer, label: 'Regular', sub: '0% fee · 1-3 days', activeColor: 'border-[#00ff88]/40 bg-[#00ff88]/8', textColor: 'text-[#00ff88]' },
                 { instant: true, icon: Bolt, label: 'Instant', sub: `${(feeRate * 100).toFixed(0)}% fee · Immediate`, activeColor: 'border-amber-400/40 bg-amber-400/8', textColor: 'text-amber-400' },
@@ -248,19 +288,21 @@ function WithdrawModal({ onClose, onSuccess, balance }: { onClose: () => void; o
             </AnimatePresence>
 
             <motion.button
-              whileHover={{ scale: 1.02, y: -1 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={!isBlocked ? { scale: 1.02, y: -1 } : {}}
+              whileTap={!isBlocked ? { scale: 0.98 } : {}}
               onClick={handleWithdraw}
-              disabled={loading || !amount}
+              disabled={loading || !amount || isBlocked}
               className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 ${
-                isInstant
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-[0_0_30px_rgba(245,158,11,0.25)]'
-                  : 'bg-gradient-to-r from-[#ff3366] to-pink-600 hover:shadow-[0_0_30px_rgba(255,51,102,0.3)]'
+                isBlocked
+                  ? 'bg-gray-600 cursor-not-allowed'
+                  : isInstant
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-[0_0_30px_rgba(245,158,11,0.25)]'
+                    : 'bg-gradient-to-r from-[#ff3366] to-pink-600 hover:shadow-[0_0_30px_rgba(255,51,102,0.3)]'
               }`}
             >
-              {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : isInstant ? <><Bolt className="w-5 h-5" />Instant Withdraw</> : <><ArrowUpRight className="w-5 h-5" />Submit Withdrawal</>}
+              {isBlocked ? <><Lock className="w-5 h-5" />Locked — Need Referrals</> : loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : isInstant ? <><Bolt className="w-5 h-5" />Instant Withdraw</> : <><ArrowUpRight className="w-5 h-5" />Submit Withdrawal</>}
             </motion.button>
-            <p className="text-xs text-gray-600 text-center mt-3">{isInstant ? 'Instant processing with fee' : 'Queued for admin approval · No fees'}</p>
+            <p className="text-xs text-gray-600 text-center mt-3">{isBlocked ? 'Invite active referrals to unlock withdrawals' : isInstant ? 'Instant processing with fee' : 'Queued for admin approval · No fees'}</p>
           </>
         )}
       </motion.div>
@@ -284,14 +326,19 @@ function WalletSkeleton() {
 export default function WalletPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [txs, setTxs] = useState<Transaction[]>([]);
+  const [refQual, setRefQual] = useState<ReferralQualification | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
 
   const load = async () => {
     try {
-      const [d, t] = await Promise.all([userApi.getDashboard(), userApi.getTransactions(0, 10)]);
-      setDashboard(d); setTxs(t);
+      const [d, t, rq] = await Promise.all([
+        userApi.getDashboard(),
+        userApi.getTransactions(0, 10),
+        userApi.getReferralQualification().catch(() => null),
+      ]);
+      setDashboard(d); setTxs(t); if (rq) setRefQual(rq);
     } catch {} finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -353,6 +400,57 @@ export default function WalletPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Referral Qualification Widget */}
+      {refQual && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+          className={`glass p-4 border ${refQual.qualified ? 'border-[#00ff88]/15 bg-[#00ff88]/[0.02]' : 'border-amber-500/15 bg-amber-500/[0.02]'}`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {refQual.qualified ? (
+                <div className="w-10 h-10 rounded-xl bg-[#00ff88]/10 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5 text-[#00ff88]" />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-amber-400" />
+                </div>
+              )}
+              <div>
+                <p className={`text-sm font-semibold ${refQual.qualified ? 'text-[#00ff88]' : 'text-amber-400'}`}>
+                  {refQual.qualified ? 'Withdrawal Unlocked' : 'Referral Qualification'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {refQual.qualified
+                    ? 'You can withdraw funds at any time'
+                    : `Invite ${refQual.required - refQual.activeReferrals} more active referral${refQual.required - refQual.activeReferrals > 1 ? 's' : ''} to unlock withdrawals`}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {Array.from({ length: refQual.required }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all ${
+                    idx < refQual.activeReferrals
+                      ? 'bg-[#00ff88]/15 border-[#00ff88]/30 text-[#00ff88]'
+                      : 'bg-white/5 border-white/10 text-gray-600'
+                  }`}
+                >
+                  {idx < refQual.activeReferrals ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
+                </div>
+              ))}
+              <span className="text-xs font-mono font-bold ml-1" style={{ color: refQual.qualified ? '#00ff88' : '#f59e0b' }}>
+                {refQual.activeReferrals}/{refQual.required}
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Balance Card */}
       <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
@@ -475,7 +573,7 @@ export default function WalletPage() {
 
       <AnimatePresence>
         {showDeposit && <DepositModal onClose={() => setShowDeposit(false)} onSuccess={load} />}
-        {showWithdraw && <WithdrawModal onClose={() => setShowWithdraw(false)} onSuccess={load} balance={dashboard?.balance || 0} />}
+        {showWithdraw && <WithdrawModal onClose={() => setShowWithdraw(false)} onSuccess={load} balance={dashboard?.balance || 0} refQual={refQual} />}
       </AnimatePresence>
     </div>
   );

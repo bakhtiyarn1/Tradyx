@@ -24,6 +24,7 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Bot sessions
+# Bot sessions & data
 bot/sessions.json
+bot/admin_ids.json
 bot/node_modules/

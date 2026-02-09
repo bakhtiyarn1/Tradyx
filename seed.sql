@@ -79,11 +79,14 @@ DECLARE
     ];
 
     -- Days ago the user registered (decimal for fractional days)
+    -- Leaders registered 25-30 days ago (so their investments pass the 21-day lock)
+    -- Active investors 10-14 days ago (investments still locked)
+    -- Newcomers 0-5 days ago
     created_ago NUMERIC[] := ARRAY[
-        14, 14, 13, 13, 12,
-        11, 11, 10, 10, 10,  9, 9, 8, 8, 8,  7, 7, 7, 6, 6,
-        3, 2.5, 3, 2, 1.5,  1, 2, 1.5, 1, 1,
-        0.7, 0.6, 2, 1, 0.5,  1, 1.5, 0.5, 2, 1,
+        30, 28, 27, 25, 25,
+        14, 13, 13, 12, 12,  11, 11, 10, 10, 10,  9, 9, 8, 8, 7,
+        5, 4.5, 4, 3.5, 3,  2.5, 2, 2, 1.5, 1.5,
+        1, 1, 2, 1, 0.5,  1, 1.5, 0.5, 2, 1,
         1.5, 0.5, 0.5, 1, 0.5,  0.3, 2, 0.5, 0.3, 1
     ];
 
@@ -206,49 +209,61 @@ BEGIN
         active      BOOLEAN
     );
 
+    -- NEW SUSTAINABLE RATES:
+    -- Starter ($20-99):   0.50% daily, 45 days
+    -- Growth  ($100-499): 0.65% daily, 60 days
+    -- Premium ($500-1999):0.75% daily, 90 days
+    -- Elite   ($2000+):   0.85% daily, 120 days
+
     INSERT INTO _inv VALUES
-    -- ── Leaders ─────────────────────────────────────────────
-    (1, 2000, 0.017, 14,   0, false),   -- crypto_king: completed
-    (1, 2000, 0.017, 10,   5, true),    --   almost done
-    (1, 2000, 0.017,  4,  20, true),    --   recent
-    (2, 2000, 0.017, 14,   0, false),   -- whale_master: completed
-    (2, 1500, 0.017, 12,   3, true),
-    (2, 2000, 0.017,  3,  25, true),
-    (3, 1500, 0.017, 13,   0, false),   -- dragon_inv: completed
-    (3, 1500, 0.017,  7,  15, true),
-    (4, 1000, 0.017, 10,  10, true),    -- alpha_trades
-    (4, 1500, 0.017,  4,  22, true),
-    (5, 1000, 0.017, 11,   8, true),    -- moon_capital
-    (5, 1200, 0.017,  5,  18, true),
+    -- ── Leaders (registered 25-30 days ago) ─────────────────
+    -- Some investments >21 days ago (can early exit), some recent (still locked)
+    -- Elite plan: 0.0085 rate, 120 days duration
+    (1, 2000, 0.0085, 28,  92, true),    -- crypto_king: 28d ago, 28 payouts done, can early exit ✅
+    (1, 3000, 0.0085, 25,  95, true),    --   25d ago, can early exit ✅
+    (1, 2500, 0.0085,  4, 116, true),    --   recent, locked 🔒
+    (2, 2000, 0.0085, 26,  94, true),    -- whale_master: 26d ago, can early exit ✅
+    (2, 2500, 0.0085, 23,  97, true),    --   23d ago, can early exit ✅
+    (2, 3000, 0.0085,  3, 117, true),    --   recent, locked 🔒
+    -- Premium plan: 0.0075 rate, 90 days duration
+    (3, 1500, 0.0075, 25,  65, true),    -- dragon_inv: 25d ago, can early exit ✅
+    (3, 1000, 0.0075, 22,  68, true),    --   22d ago, can early exit ✅
+    (4,  800, 0.0075, 24,  66, true),    -- alpha_trades: 24d, can exit ✅
+    (4, 1500, 0.0075,  4,  86, true),    --   recent, locked 🔒
+    (5,  700, 0.0075, 23,  67, true),    -- moon_capital: 23d, can exit ✅
+    (5, 1200, 0.0075,  5,  85, true),    --   recent, locked 🔒
 
     -- ── Active Investors ────────────────────────────────────
-    (6,  500, 0.017,  8, 20, true),  (6,  300, 0.017,  3, 25, true),
-    (7,  700, 0.017,  7, 15, true),  (7,  500, 0.017,  3, 22, true),
-    (8,  350, 0.017,  6, 18, true),  (8,  250, 0.017,  2, 26, true),
-    (9, 1000, 0.017,  9, 12, true),  (9,  500, 0.017,  3, 24, true),
-    (10, 500, 0.017,  5, 20, true),  (10, 400, 0.017,  3, 23, true),
-    (11, 400, 0.017,  7, 16, true),  (11, 300, 0.017,  3, 25, true),
-    (12, 700, 0.017,  8, 14, true),  (12, 400, 0.017,  3, 22, true),
-    (13, 500, 0.017,  6, 18, true),  (13, 300, 0.017,  3, 24, true),
-    (14, 300, 0.017,  4, 22, true),  (14, 200, 0.017,  1, 28, true),
-    (15, 600, 0.017,  7, 16, true),  (15, 400, 0.017,  4, 20, true),
-    (16, 350, 0.017,  6, 18, true),  (16, 300, 0.017,  3, 24, true),
-    (17, 300, 0.017,  4, 22, true),  (17, 250, 0.017,  2, 26, true),
-    (18, 500, 0.017,  7, 16, true),  (18, 250, 0.017,  3, 24, true),
-    (19, 800, 0.017,  9, 12, true),  (19, 500, 0.017,  4, 22, true),
-    (20, 300, 0.017,  4, 22, true),  (20, 200, 0.017,  1, 28, true),
+    -- Premium plan ($500-1999): 0.0075, 90 days
+    (6,  500, 0.0075,  8, 82, true),  (6,  300, 0.0065,  3, 57, true),
+    (7,  700, 0.0075,  7, 83, true),  (7,  500, 0.0075,  3, 87, true),
+    (8,  350, 0.0065,  6, 54, true),  (8,  250, 0.0065,  2, 58, true),
+    (9, 1000, 0.0075,  9, 81, true),  (9,  500, 0.0075,  3, 87, true),
+    (10, 500, 0.0075,  5, 85, true),  (10, 400, 0.0065,  3, 57, true),
+    -- Growth plan ($100-499): 0.0065, 60 days
+    (11, 400, 0.0065,  7, 53, true),  (11, 300, 0.0065,  3, 57, true),
+    (12, 700, 0.0075,  8, 82, true),  (12, 400, 0.0065,  3, 57, true),
+    (13, 500, 0.0075,  6, 84, true),  (13, 300, 0.0065,  3, 57, true),
+    (14, 300, 0.0065,  4, 56, true),  (14, 200, 0.0065,  1, 59, true),
+    (15, 600, 0.0075,  7, 83, true),  (15, 400, 0.0065,  4, 56, true),
+    (16, 350, 0.0065,  6, 54, true),  (16, 300, 0.0065,  3, 57, true),
+    (17, 300, 0.0065,  4, 56, true),  (17, 250, 0.0065,  2, 58, true),
+    (18, 500, 0.0075,  7, 83, true),  (18, 250, 0.0065,  3, 57, true),
+    (19, 800, 0.0075,  9, 81, true),  (19, 500, 0.0075,  4, 86, true),
+    (20, 300, 0.0065,  4, 56, true),  (20, 200, 0.0065,  1, 59, true),
 
     -- ── Newcomers with investments ──────────────────────────
-    (21,  50, 0.011,  1, 28, true),   -- newbie_alex
-    (23, 100, 0.014,  2, 26, true),   -- beginner_01
-    (27,  30, 0.008,  1, 28, true),   -- small_steps
-    (29,  20, 0.008, 0.5,29, true),   -- penny_wise
-    (33,  50, 0.011,  2, 27, true),   -- step_by_step
-    (37,  25, 0.008,  1, 28, true),   -- cautious_cat
-    (39,  50, 0.011,  2, 27, true),   -- save_first
-    (41,  40, 0.008,  1, 28, true),   -- dabble_dan
-    (45,  20, 0.008, 0.5,29, true),   -- watch_learn
-    (47,  75, 0.011,  2, 26, true);   -- copy_trader
+    -- Starter plan ($20-99): 0.005, 45 days
+    (21,  50, 0.005,  1, 44, true),   -- newbie_alex
+    (23,  80, 0.005,  2, 43, true),   -- beginner_01
+    (27,  30, 0.005,  1, 44, true),   -- small_steps
+    (29,  20, 0.005, 0.5,44, true),   -- penny_wise
+    (33,  50, 0.005,  2, 43, true),   -- step_by_step
+    (37,  25, 0.005,  1, 44, true),   -- cautious_cat
+    (39,  50, 0.005,  2, 43, true),   -- save_first
+    (41,  40, 0.005,  1, 44, true),   -- dabble_dan
+    (45,  20, 0.005, 0.5,44, true),   -- watch_learn
+    (47,  75, 0.005,  2, 43, true);   -- copy_trader
 
     -- ── Process each investment ─────────────────────────────
     FOR inv_rec IN SELECT * FROM _inv LOOP
@@ -660,6 +675,15 @@ BEGIN
     RAISE NOTICE '  Password:  SeedPass123!';
     RAISE NOTICE '  Admin:     superadmin@tradyx.com';
     RAISE NOTICE '  Referral tree: 3 levels deep';
+    RAISE NOTICE '';
+    RAISE NOTICE '  📋 REFERRAL QUALIFICATION TEST CASES:';
+    RAISE NOTICE '    ✅ Leaders (1-5): 3 active referrals each → CAN withdraw';
+    RAISE NOTICE '    ❌ Active (6-20): 0-2 active referrals   → CANNOT withdraw';
+    RAISE NOTICE '    ❌ Newbies (21-50): 0 referrals           → CANNOT withdraw';
+    RAISE NOTICE '';
+    RAISE NOTICE '  📋 EARLY EXIT TEST CASES:';
+    RAISE NOTICE '    ✅ Leaders (1-5): registered 25-30 days ago → CAN early exit';
+    RAISE NOTICE '    🔒 Active (6-20): registered 7-14 days ago → LOCKED (wait)';
     RAISE NOTICE '════════════════════════════════════════════════════════';
 
 END $$;
@@ -730,6 +754,24 @@ FROM transactions t
 JOIN users u ON u.id = t.user_id
 WHERE t.type = 'Withdrawal' AND t.status = 'Pending'
 ORDER BY t.created_at;
+
+SELECT '─── Referral Qualification for Withdrawal ───' AS info;
+SELECT
+    u.username,
+    (SELECT COUNT(*) FROM users r
+     WHERE r.referrer_id = u.id
+       AND r.id IN (SELECT DISTINCT user_id FROM investments WHERE is_active = true)
+    ) AS active_refs,
+    CASE WHEN (SELECT COUNT(*) FROM users r
+               WHERE r.referrer_id = u.id
+                 AND r.id IN (SELECT DISTINCT user_id FROM investments WHERE is_active = true)) >= 3
+         THEN '✅ Can Withdraw' ELSE '🔒 Locked' END AS withdrawal_status,
+    CASE WHEN NOW() - u.created_at > INTERVAL '21 days'
+         THEN '✅ Can Early Exit' ELSE '🔒 Locked (' || CEIL(EXTRACT(EPOCH FROM (u.created_at + INTERVAL '21 days' - NOW())) / 86400) || 'd left)' END AS early_exit_status
+FROM users u
+WHERE u.email != 'superadmin@tradyx.com'
+ORDER BY u.created_at ASC
+LIMIT 20;
 
 SELECT '─── Balance Consistency Check ───' AS info;
 SELECT

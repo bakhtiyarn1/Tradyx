@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TrendingUp, Zap, Clock, CheckCircle2, X, DollarSign, AlertTriangle, BarChart3, Pause } from 'lucide-react';
+import { TrendingUp, Zap, Clock, CheckCircle2, X, DollarSign, AlertTriangle, BarChart3, Pause, LogOut, Lock, Unlock } from 'lucide-react';
 import { investmentApi, userApi, type Investment, type InvestmentPlanPublic } from '../lib/api';
 import { useSounds } from '../hooks/useSounds';
+import { useToast } from '../lib/toast';
 
 const colorMap: Record<string, { color: string; border: string; text: string; glow: string }> = {
   blue: { color: 'from-blue-500/20 to-blue-500/5', border: 'border-blue-500/20', text: 'text-blue-400', glow: 'hover:shadow-[0_0_30px_rgba(59,130,246,0.15)]' },
@@ -168,6 +169,124 @@ function InvestmentSkeleton() {
   );
 }
 
+/* ── Countdown helper ── */
+function useCountdown(targetDate: string | null) {
+  const [timeLeft, setTimeLeft] = useState('');
+  const [isUnlocked, setIsUnlocked] = useState(false);
+
+  useEffect(() => {
+    if (!targetDate) { setIsUnlocked(true); return; }
+    const target = new Date(targetDate).getTime();
+
+    const update = () => {
+      const now = Date.now();
+      const diff = target - now;
+      if (diff <= 0) { setIsUnlocked(true); setTimeLeft(''); return; }
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      setTimeLeft(d > 0 ? `${d}d ${h}h` : `${h}h ${m}m`);
+      setIsUnlocked(false);
+    };
+    update();
+    const iv = setInterval(update, 60000);
+    return () => clearInterval(iv);
+  }, [targetDate]);
+
+  return { timeLeft, isUnlocked };
+}
+
+/* ── Early Exit Button for a single investment ── */
+function EarlyExitButton({ inv, onSuccess }: { inv: Investment; onSuccess: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const toast = useToast();
+  const { playSuccess, playError: errSound } = useSounds();
+
+  // Lock date = createdAt + 21 days
+  const lockDate = new Date(new Date(inv.createdAt).getTime() + 21 * 86400000).toISOString();
+  const { timeLeft, isUnlocked } = useCountdown(lockDate);
+
+  const feePercent = 15; // matches backend config
+  const fee = inv.amount * (feePercent / 100);
+  const returnAmount = inv.amount - fee;
+
+  const handleEarlyExit = async () => {
+    setLoading(true);
+    try {
+      const res = await investmentApi.earlyExit(inv.id);
+      if (res.success) {
+        playSuccess();
+        toast.success(res.message || `$${res.returnedAmount.toFixed(2)} returned`);
+        onSuccess();
+      } else {
+        errSound();
+        toast.error((res as any).message || 'Failed');
+      }
+    } catch (e: any) {
+      errSound();
+      toast.error(e.response?.data?.message || 'Early exit failed');
+    } finally {
+      setLoading(false);
+      setConfirm(false);
+    }
+  };
+
+  if (!inv.isActive) return null;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/5">
+      {!isUnlocked ? (
+        <div className="flex items-center gap-2 text-xs">
+          <Lock className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-amber-400 font-medium">Early exit in {timeLeft}</span>
+        </div>
+      ) : !confirm ? (
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setConfirm(true)}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold hover:bg-amber-500/15 transition-all"
+        >
+          <Unlock className="w-3.5 h-3.5" />Early Exit (−{feePercent}% fee)
+        </motion.button>
+      ) : (
+        <div className="space-y-2">
+          <div className="glass p-2.5 rounded-lg space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-400">Investment body</span>
+              <span className="text-white font-mono">${inv.amount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-400">Fee ({feePercent}%)</span>
+              <span className="text-[#ff3366] font-mono">-${fee.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-xs border-t border-white/5 pt-1">
+              <span className="text-gray-300 font-medium">You receive</span>
+              <span className="text-[#00ff88] font-bold font-mono">${returnAmount.toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setConfirm(false)}
+              className="flex-1 px-3 py-2 rounded-lg bg-white/5 text-gray-400 text-xs font-medium hover:bg-white/10 transition-colors"
+            >Cancel</motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleEarlyExit}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#ff3366]/15 border border-[#ff3366]/20 text-[#ff3366] text-xs font-semibold hover:bg-[#ff3366]/20 transition-all disabled:opacity-50"
+            >
+              {loading ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-[#ff3366] rounded-full animate-spin" /> : <><LogOut className="w-3.5 h-3.5" />Confirm</>}
+            </motion.button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 export default function Investments() {
   const [investments, setInvestments] = useState<Investment[]>([]);
@@ -175,7 +294,7 @@ export default function Investments() {
   const [loading, setLoading] = useState(true);
   const [showPurchase, setShowPurchase] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [inv, p] = await Promise.all([
         investmentApi.getMyInvestments(),
@@ -184,15 +303,15 @@ export default function Investments() {
       setInvestments(Array.isArray(inv) ? inv : []);
       setPlans(Array.isArray(p) ? p : []);
     } catch { } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   // Listen for SignalR investment updates
   useEffect(() => {
     const handler = () => load();
     window.addEventListener('signalr:investment', handler);
     return () => window.removeEventListener('signalr:investment', handler);
-  }, []);
+  }, [load]);
 
   if (loading) return <InvestmentSkeleton />;
 
@@ -318,6 +437,9 @@ export default function Investments() {
                   Next payout: {new Date(inv.nextPayoutAt).toLocaleString()}
                 </div>
               )}
+
+              {/* Early Exit */}
+              <EarlyExitButton inv={inv} onSuccess={load} />
             </motion.div>
           );
         })}

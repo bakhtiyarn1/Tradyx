@@ -1,4 +1,6 @@
+using System.Globalization;
 using Dapper;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Tradyx.Core.DTOs;
 using Tradyx.Core.Entities;
@@ -14,8 +16,12 @@ public class InvestmentService : IInvestmentService
     private readonly TransactionRepository _transactionRepository;
     private readonly NotificationRepository _notificationRepository;
     private readonly IRankService _rankService;
+    private readonly IRealtimeNotifier _realtime;
     private readonly ITelegramNotifier _telegram;
     private readonly ILogger<InvestmentService> _logger;
+
+    private readonly decimal _earlyExitFee;
+    private readonly int _minLockDays;
 
     public InvestmentService(
         IDbConnectionFactory connectionFactory,
@@ -23,7 +29,9 @@ public class InvestmentService : IInvestmentService
         TransactionRepository transactionRepository,
         NotificationRepository notificationRepository,
         IRankService rankService,
+        IRealtimeNotifier realtime,
         ITelegramNotifier telegram,
+        IConfiguration configuration,
         ILogger<InvestmentService> logger)
     {
         _connectionFactory = connectionFactory;
@@ -31,9 +39,20 @@ public class InvestmentService : IInvestmentService
         _transactionRepository = transactionRepository;
         _notificationRepository = notificationRepository;
         _rankService = rankService;
+        _realtime = realtime;
         _telegram = telegram;
         _logger = logger;
+
+        var s = configuration.GetSection("InvestmentSettings");
+        _earlyExitFee = ParseDec(s["EarlyExitFee"], 0.15m);
+        _minLockDays = int.TryParse(s["MinLockDays"], out var d) ? d : 21;
+
+        _logger.LogInformation("[Investment] EarlyExit: fee={Fee}%, lockDays={Days}",
+            _earlyExitFee * 100, _minLockDays);
     }
+
+    private static decimal ParseDec(string? s, decimal fallback) =>
+        decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
     public async Task<IEnumerable<InvestmentPlan>> GetActivePlansAsync(CancellationToken cancellationToken = default)
     {
@@ -156,5 +175,93 @@ public class InvestmentService : IInvestmentService
     {
         var investments = await _investmentRepository.GetByUserIdAsync(userId, cancellationToken);
         return investments.Select(InvestmentResponse.FromEntity);
+    }
+
+    public async Task<EarlyExitResult> RequestEarlyExitAsync(Guid userId, Guid investmentId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var tx = conn.BeginTransaction();
+
+        try
+        {
+            // Lock the investment row
+            var inv = await conn.QuerySingleOrDefaultAsync<(Guid Id, Guid UserId, decimal Amount, DateTime CreatedAt, bool IsActive, int RemainingPayouts)>(
+                "SELECT id, user_id, amount, created_at, is_active, remaining_payouts FROM investments WHERE id = @Id FOR UPDATE",
+                new { Id = investmentId }, tx);
+
+            if (inv == default)
+                return new EarlyExitResult(false, "Investment not found");
+            if (inv.UserId != userId)
+                return new EarlyExitResult(false, "Investment does not belong to you");
+            if (!inv.IsActive)
+                return new EarlyExitResult(false, "Investment is already closed");
+
+            // Check 21-day lock
+            var lockEnd = inv.CreatedAt.AddDays(_minLockDays);
+            if (DateTime.UtcNow < lockEnd)
+            {
+                var remaining = lockEnd - DateTime.UtcNow;
+                var daysLeft = (int)Math.Ceiling(remaining.TotalDays);
+                var hoursLeft = (int)remaining.TotalHours % 24;
+                return new EarlyExitResult(false,
+                    $"Minimum {_minLockDays} days required. Available in {daysLeft}d {hoursLeft}h.");
+            }
+
+            // Calculate fee and return amount
+            var fee = Math.Round(inv.Amount * _earlyExitFee, 2);
+            var returnAmount = inv.Amount - fee;
+
+            // Deactivate investment
+            await conn.ExecuteAsync(
+                "UPDATE investments SET is_active = false, remaining_payouts = 0 WHERE id = @Id",
+                new { Id = investmentId }, tx);
+
+            // Credit user balance
+            await conn.ExecuteAsync(
+                "UPDATE users SET balance = balance + @Amount WHERE id = @UserId",
+                new { Amount = returnAmount, UserId = userId }, tx);
+
+            // Transaction record
+            var transaction = Transaction.Create(userId, returnAmount, Transaction.Types.Withdrawal,
+                $"Early exit from investment (body ${inv.Amount:F2}, fee ${fee:F2} [{_earlyExitFee * 100:F0}%])");
+            await _transactionRepository.AddAsync(transaction, conn, tx);
+
+            // Notification
+            var notif = Notification.Create(userId,
+                $"💰 Досрочный возврат инвестиции: ${returnAmount:F2} зачислено (комиссия ${fee:F2})");
+            await _notificationRepository.AddAsync(notif, conn, tx);
+
+            tx.Commit();
+
+            _logger.LogInformation("[Investment] Early exit: user {UserId}, inv {InvId}, body ${Body}, fee ${Fee}, returned ${Return}",
+                userId, investmentId, inv.Amount, fee, returnAmount);
+
+            // SignalR + Telegram
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var c = await _connectionFactory.CreateConnectionAsync();
+                    var balance = await c.QuerySingleAsync<decimal>("SELECT balance FROM users WHERE id = @Id", new { Id = userId });
+                    await _realtime.NotifyBalanceUpdated(userId, balance);
+                    await _realtime.NotifyInvestmentUpdated(userId);
+                    await _realtime.NotifyNewNotification(userId, $"💰 Early exit: ${returnAmount:F2} returned");
+                }
+                catch { }
+            });
+
+            _ = _telegram.NotifyAsync(
+                $"💰 <b>Досрочный возврат</b>\n" +
+                $"Сумма инвестиции: <b>${inv.Amount:F2}</b>\n" +
+                $"Комиссия: ${fee:F2} ({_earlyExitFee * 100:F0}%)\n" +
+                $"Возвращено: <b>${returnAmount:F2}</b>");
+
+            return new EarlyExitResult(true, null, returnAmount, fee);
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
     }
 }

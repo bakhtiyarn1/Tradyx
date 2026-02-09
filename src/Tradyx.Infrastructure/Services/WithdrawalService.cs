@@ -17,6 +17,7 @@ public class WithdrawalService : IWithdrawalService
     private readonly decimal _instantFeeRate;
     private readonly decimal _instantMaxAmount;
     private readonly decimal _minAmount;
+    private readonly int _minActiveReferrals;
     private readonly Dictionary<UserRank, decimal> _feeDiscounts;
 
     public WithdrawalService(
@@ -36,6 +37,9 @@ public class WithdrawalService : IWithdrawalService
         _instantMaxAmount = ParseDec(s["InstantMaxAmount"], 500m);
         _minAmount = ParseDec(s["MinAmount"], 10m);
 
+        var refSection = configuration.GetSection("ReferralQualification");
+        _minActiveReferrals = int.TryParse(refSection["MinActiveReferrals"], out var mr) ? mr : 3;
+
         _feeDiscounts = new()
         {
             [UserRank.Bronze]   = ParseDec(s["FeeDiscounts:Bronze"], 0m),
@@ -44,8 +48,8 @@ public class WithdrawalService : IWithdrawalService
             [UserRank.Platinum] = ParseDec(s["FeeDiscounts:Platinum"], 0.30m),
         };
 
-        _logger.LogInformation("[Withdrawal] Fee={Fee}%, Max=${Max}, Discounts: Gold={G}%, Plat={P}%",
-            _instantFeeRate * 100, _instantMaxAmount,
+        _logger.LogInformation("[Withdrawal] Fee={Fee}%, Max=${Max}, MinRefs={MinRefs}, Discounts: Gold={G}%, Plat={P}%",
+            _instantFeeRate * 100, _instantMaxAmount, _minActiveReferrals,
             _feeDiscounts[UserRank.Gold] * 100, _feeDiscounts[UserRank.Platinum] * 100);
     }
 
@@ -57,6 +61,21 @@ public class WithdrawalService : IWithdrawalService
             return new WithdrawalResult(false, $"Minimum withdrawal is ${_minAmount:F0}");
 
         using var conn = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        // === REFERRAL QUALIFICATION: must have N active referrals ===
+        if (_minActiveReferrals > 0)
+        {
+            var activeRefCount = await conn.QuerySingleAsync<int>(
+                @"SELECT COUNT(*) FROM users u
+                  WHERE u.referrer_id = @UserId
+                    AND u.id IN (SELECT DISTINCT user_id FROM investments WHERE is_active = true)",
+                new { UserId = userId });
+
+            if (activeRefCount < _minActiveReferrals)
+                return new WithdrawalResult(false,
+                    $"You need at least {_minActiveReferrals} active referrals to withdraw funds. Current: {activeRefCount}/{_minActiveReferrals}");
+        }
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -290,6 +309,17 @@ public class WithdrawalService : IWithdrawalService
         var rank = (UserRank)userRank;
         var discount = _feeDiscounts.GetValueOrDefault(rank, 0m);
         return new WithdrawalInfoDto(_instantFeeRate, _instantMaxAmount, _minAmount, discount);
+    }
+
+    public async Task<ReferralQualificationDto> GetReferralQualificationAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        using var conn = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        var activeRefCount = await conn.QuerySingleAsync<int>(
+            @"SELECT COUNT(*) FROM users u
+              WHERE u.referrer_id = @UserId
+                AND u.id IN (SELECT DISTINCT user_id FROM investments WHERE is_active = true)",
+            new { UserId = userId });
+        return new ReferralQualificationDto(activeRefCount, _minActiveReferrals, activeRefCount >= _minActiveReferrals);
     }
 
     // === Helpers ===

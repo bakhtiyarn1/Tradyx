@@ -18,10 +18,15 @@ public interface IWithdrawalService
 
     /// <summary>Get withdrawal info (fee, limits) for UI.</summary>
     WithdrawalInfoDto GetWithdrawalInfo(int userRank);
+
+    /// <summary>Get referral qualification status for withdrawal eligibility.</summary>
+    Task<ReferralQualificationDto> GetReferralQualificationAsync(Guid userId, CancellationToken cancellationToken = default);
 }
 
 public record WithdrawalResult(bool Success, string? Error, Guid? TransactionId = null,
     decimal NetAmount = 0, decimal Fee = 0, string Status = "");
+
+public record ReferralQualificationDto(int ActiveReferrals, int Required, bool Qualified);
 
 public record PendingWithdrawalDto
 {

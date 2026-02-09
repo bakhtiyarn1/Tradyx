@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './lib/auth';
 import { ToastProvider } from './lib/toast';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import AdminLogin from './pages/AdminLogin';
 import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Investments from './pages/Investments';
@@ -37,7 +38,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function PublicRoute({ children }: { children: React.ReactNode }) {
+function PublicRoute({ children, allowWhenAuth = false }: { children: React.ReactNode; allowWhenAuth?: boolean }) {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) {
     return (
@@ -49,7 +50,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated && !allowWhenAuth) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -79,6 +80,7 @@ function AnimatedOutlet() {
       >
         <Routes location={location}>
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/admin-login" element={<PublicRoute allowWhenAuth><AdminLogin /></PublicRoute>} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/wallet" element={<WalletPage />} />
@@ -88,7 +90,7 @@ function AnimatedOutlet() {
             <Route path="/admin" element={<AdminPanel />} />
           </Route>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </motion.div>
     </AnimatePresence>

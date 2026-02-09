@@ -15,20 +15,20 @@ public class Investment
 
     public static decimal GetDailyRate(decimal amount) => amount switch
     {
-        >= 150m => 0.017m,
-        >= 100m => 0.014m,
-        >= 50m  => 0.011m,
-        >= 20m  => 0.008m,
-        _       => 0m
+        >= 2000m => 0.0085m,   // Elite
+        >= 500m  => 0.0075m,   // Premium
+        >= 100m  => 0.0065m,   // Growth
+        >= 20m   => 0.005m,    // Starter
+        _        => 0m
     };
 
     /// <summary>Default payout count per plan tier.</summary>
     public static int GetDefaultPayoutCount(decimal amount) => amount switch
     {
-        >= 150m => 30,
-        >= 100m => 30,
-        >= 50m  => 30,
-        >= 20m  => 30,
-        _       => 0
+        >= 2000m => 120,  // Elite
+        >= 500m  => 90,   // Premium
+        >= 100m  => 60,   // Growth
+        >= 20m   => 45,   // Starter
+        _        => 0
     };
 }
