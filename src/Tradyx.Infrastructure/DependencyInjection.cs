@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IReferralService, ReferralService>();
         services.AddScoped<IWithdrawalService, WithdrawalService>();
         services.AddScoped<IPayoutService, PayoutService>();
+        services.AddScoped<ITreasuryService, TreasuryService>();
 
         // Telegram
         services.AddSingleton<ITelegramNotifier, TelegramNotifierService>();

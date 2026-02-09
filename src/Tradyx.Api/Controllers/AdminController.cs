@@ -15,17 +15,19 @@ public class AdminController : ControllerBase
     private readonly IAdminRepository _adminRepository;
     private readonly IPayoutService _payoutService;
     private readonly IWithdrawalService _withdrawalService;
+    private readonly ITreasuryService _treasuryService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
         IAdminRepository adminRepository, IPayoutService payoutService,
-        IWithdrawalService withdrawalService,
+        IWithdrawalService withdrawalService, ITreasuryService treasuryService,
         IConfiguration configuration, ILogger<AdminController> logger)
     {
         _adminRepository = adminRepository;
         _payoutService = payoutService;
         _withdrawalService = withdrawalService;
+        _treasuryService = treasuryService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -46,6 +48,23 @@ public class AdminController : ControllerBase
         {
             _logger.LogError(ex, "[Admin] Error fetching stats");
             return StatusCode(500, new { Message = "Failed to load statistics" });
+        }
+    }
+
+    [HttpGet("treasury")]
+    public async Task<IActionResult> GetTreasuryHealth(CancellationToken cancellationToken)
+    {
+        if (!IsAdmin()) return Forbid();
+
+        try
+        {
+            var health = await _treasuryService.GetHealthAsync(cancellationToken);
+            return Ok(health);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Admin] Error fetching treasury health");
+            return StatusCode(500, new { Message = "Failed to load treasury health" });
         }
     }
 

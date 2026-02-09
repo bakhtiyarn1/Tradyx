@@ -291,17 +291,24 @@ function EarlyExitButton({ inv, onSuccess }: { inv: Investment; onSuccess: () =>
 export default function Investments() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [plans, setPlans] = useState<InvestmentPlanPublic[]>([]);
+  const [rateMultiplier, setRateMultiplier] = useState(1.0);
   const [loading, setLoading] = useState(true);
   const [showPurchase, setShowPurchase] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [inv, p] = await Promise.all([
+      const [inv, plansResp] = await Promise.all([
         investmentApi.getMyInvestments(),
         investmentApi.getPlans()
       ]);
       setInvestments(Array.isArray(inv) ? inv : []);
-      setPlans(Array.isArray(p) ? p : []);
+      // Handle both { plans, rateMultiplier } and plain array responses
+      if (plansResp && typeof plansResp === 'object' && 'plans' in plansResp) {
+        setPlans(Array.isArray(plansResp.plans) ? plansResp.plans : []);
+        setRateMultiplier(plansResp.rateMultiplier ?? 1.0);
+      } else {
+        setPlans(Array.isArray(plansResp) ? plansResp : []);
+      }
     } catch { } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -351,11 +358,37 @@ export default function Investments() {
         </motion.button>
       </motion.div>
 
+      {/* Treasury Health Banner */}
+      {rateMultiplier < 1.0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`glass p-4 rounded-xl border ${
+            rateMultiplier >= 0.8 ? 'border-amber-500/30 bg-amber-500/5' : 'border-red-500/30 bg-red-500/5'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className={`w-5 h-5 ${rateMultiplier >= 0.8 ? 'text-amber-400' : 'text-red-400'}`} />
+            <div>
+              <p className={`text-sm font-semibold ${rateMultiplier >= 0.8 ? 'text-amber-400' : 'text-red-400'}`}>
+                {rateMultiplier >= 0.8 ? 'Moderate Market Conditions' : 'Conservative Mode Active'}
+              </p>
+              <p className="text-xs text-gray-400">
+                Investment rates are temporarily adjusted to ×{rateMultiplier.toFixed(2)} for platform sustainability.
+                {rateMultiplier >= 0.8 ? ' Rates will return to normal when conditions improve.' : ' Rates are reduced to protect all investors.'}
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Plans from DB */}
       {plans.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {plans.map((p, idx) => {
             const style = colorMap[p.color] || defaultStyle;
+            const effectiveRate = p.dailyRate * rateMultiplier;
+            const isAdjusted = rateMultiplier < 1.0;
             return (
               <motion.div
                 key={p.id}
@@ -366,7 +399,10 @@ export default function Investments() {
                 className={`p-5 rounded-xl bg-gradient-to-br ${style.color} border ${style.border} ${style.glow} transition-all duration-400 cursor-pointer`}
                 onClick={() => setShowPurchase(true)}
               >
-                <p className={`text-2xl font-bold ${style.text} mb-1`}>{(p.dailyRate * 100).toFixed(1)}%</p>
+                <p className={`text-2xl font-bold ${style.text} mb-1`}>
+                  {(effectiveRate * 100).toFixed(2)}%
+                  {isAdjusted && <span className="text-xs text-gray-500 line-through ml-1">{(p.dailyRate * 100).toFixed(1)}%</span>}
+                </p>
                 <p className="text-xs text-gray-400">Daily return · {p.durationDays} days</p>
                 <p className="text-xs text-gray-500 mt-2">${p.minAmount.toFixed(0)} — {p.maxAmount >= 999999 ? `$${p.minAmount.toFixed(0)}+` : `$${p.maxAmount.toFixed(0)}`}</p>
                 <p className="text-[10px] text-gray-600 mt-1">{p.name}{p.description ? ` — ${p.description}` : ''}</p>

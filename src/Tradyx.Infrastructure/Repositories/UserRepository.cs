@@ -137,4 +137,59 @@ public class UserRepository : IUserRepository
         }
     }
 
+    public async Task<DepositResult> DepositWithInsuranceAsync(
+        Guid userId, decimal grossAmount, ITreasuryService treasuryService, CancellationToken cancellationToken = default)
+    {
+        if (grossAmount <= 0) return new DepositResult(false, "Amount must be positive");
+
+        using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            // Row-lock
+            const string lockSql = "SELECT id FROM users WHERE id = @UserId FOR UPDATE";
+            var exists = await connection.QuerySingleOrDefaultAsync<Guid?>(lockSql, new { UserId = userId }, transaction);
+            if (exists == null) { transaction.Rollback(); return new DepositResult(false, "User not found"); }
+
+            // Process insurance fee (records InsuranceFee transaction inside the same DB tx)
+            var (netAmount, insuranceFee) = await treasuryService.ProcessDepositInsuranceAsync(userId, grossAmount, connection, transaction);
+
+            // Credit user balance with GROSS amount (full deposit), insurance is a separate platform fee
+            const string updateSql = "UPDATE users SET balance = balance + @Amount WHERE id = @UserId";
+            await connection.ExecuteAsync(updateSql, new { Amount = grossAmount, UserId = userId }, transaction);
+
+            // Deposit transaction record (full gross amount)
+            var tx = Transaction.Create(userId, grossAmount, Transaction.Types.Deposit,
+                insuranceFee > 0
+                    ? $"Deposit of ${grossAmount:F2} (${insuranceFee:F2} → insurance fund)"
+                    : $"Deposit of ${grossAmount:F2}");
+            const string insertSql = @"
+                INSERT INTO transactions (id, user_id, amount, type, description, status, created_at)
+                VALUES (@Id, @UserId, @Amount, @Type, @Description, 'Completed', @CreatedAt)";
+            await connection.ExecuteAsync(insertSql, new { tx.Id, tx.UserId, tx.Amount, tx.Type, tx.Description, tx.CreatedAt }, transaction);
+
+            // Notification
+            var msg = insuranceFee > 0
+                ? $"💳 Ваш баланс пополнен на ${grossAmount:F2} (${insuranceFee:F2} → страховой фонд)"
+                : $"💳 Ваш баланс пополнен на ${grossAmount:F2}";
+            var notif = Notification.Create(userId, msg);
+            const string notifSql = @"
+                INSERT INTO notifications (id, user_id, message, is_read, created_at)
+                VALUES (@Id, @UserId, @Message, @IsRead, @CreatedAt)";
+            await connection.ExecuteAsync(notifSql, new { notif.Id, notif.UserId, notif.Message, notif.IsRead, notif.CreatedAt }, transaction);
+
+            transaction.Commit();
+            _logger.LogInformation("[UserRepo] Deposit ${Gross:F2} (net=${Net:F2}, ins=${Fee:F2}) for user {UserId}",
+                grossAmount, netAmount, insuranceFee, userId);
+            return new DepositResult(true, null, netAmount, insuranceFee);
+        }
+        catch (Exception ex)
+        {
+            transaction.Rollback();
+            _logger.LogError(ex, "[UserRepo] DepositWithInsurance failed for user {UserId}, amount ${Amount:F2}", userId, grossAmount);
+            throw;
+        }
+    }
+
 }

@@ -114,6 +114,10 @@ export const userApi = {
     const { data } = await api.get('/user/me/referral-qualification');
     return data as ReferralQualification;
   },
+  getWithdrawalLimits: async () => {
+    const { data } = await api.get('/user/me/withdrawal-limits');
+    return data as WithdrawalLimits;
+  },
   getMyTeam: async () => {
     const { data } = await api.get('/user/me/team');
     return data;
@@ -131,7 +135,7 @@ export const investmentApi = {
   },
   getPlans: async () => {
     const { data } = await api.get('/investment/plans');
-    return data as InvestmentPlanPublic[];
+    return data as { plans: InvestmentPlanPublic[]; rateMultiplier: number };
   },
   earlyExit: async (investmentId: string) => {
     const { data } = await api.post(`/investment/${investmentId}/early-exit`);
@@ -141,6 +145,7 @@ export const investmentApi = {
 
 export const adminApi = {
   getStats: async () => { const { data } = await api.get('/admin/stats'); return data as AdminStats; },
+  getTreasury: async () => { const { data } = await api.get('/admin/treasury'); return data as TreasuryHealth; },
   getUsers: async () => { const { data } = await api.get('/admin/all-users'); return data as AdminUser[]; },
   getUserDetails: async (userId: string) => { const { data } = await api.get(`/admin/users/${userId}/full-details`); return data as UserFullDetails; },
   adjustBalance: async (userId: string, amount: number, reason: string) => {
@@ -237,3 +242,27 @@ export interface DailyStatPoint { date: string; deposits: number; withdrawals: n
 export interface PlanDistributionItem { name: string; color: string; count: number; totalAmount: number; }
 export interface FinancialSummary { totalDeposits: number; totalWithdrawals: number; totalProfitPaid: number; totalReferralPaid: number; platformRevenue: number; pendingWithdrawals: number; activeInvestmentsTotal: number; }
 export interface UserGrowthData { totalUsers: number; activeUsers7d: number; newUsersToday: number; newUsersWeek: number; rankDistribution: Record<string, number>; }
+
+// Treasury Health (Admin)
+export interface TreasuryHealth {
+  totalDeposits: number;
+  totalPayouts: number;
+  reserve: number;
+  activeInvestments: number;
+  insuranceFund: number;
+  healthRatio: number;
+  zone: 'green' | 'yellow' | 'red';
+  rateMultiplier: number;
+  withdrawnToday: number;
+  dailyWithdrawalLimit: number;
+  estimatedRunwayDays: number;
+}
+
+// Withdrawal Limits (User)
+export interface WithdrawalLimits {
+  coolingPeriod: { allowed: boolean; hoursRemaining: number; unlocksAt: string | null };
+  dailyLimits: {
+    personalLimit: number; personalUsedToday: number; personalRemaining: number;
+    platformUsedToday: number; platformLimit: number; platformRemaining: number;
+  };
+}

@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     is_instant BOOLEAN NOT NULL DEFAULT false,
     wallet_address VARCHAR(200),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_transactions_type_valid CHECK (type IN ('Deposit', 'Withdrawal', 'Investment', 'Profit', 'ReferralBonus', 'ManualAdjustment', 'Cashback')),
+    CONSTRAINT chk_transactions_type_valid CHECK (type IN ('Deposit', 'Withdrawal', 'Investment', 'Profit', 'ReferralBonus', 'ManualAdjustment', 'Cashback', 'InsuranceFee')),
     CONSTRAINT chk_transactions_status_valid CHECK (status IN ('Pending', 'Approved', 'Rejected', 'Completed'))
 );
 
@@ -212,3 +212,23 @@ BEGIN
         ALTER TABLE users ADD COLUMN is_suspicious BOOLEAN NOT NULL DEFAULT false;
     END IF;
 END $$;
+
+-- Migration: Add InsuranceFee to transactions type constraint (for existing DBs)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.check_constraints
+        WHERE constraint_name = 'chk_transactions_type_valid'
+    ) THEN
+        ALTER TABLE transactions DROP CONSTRAINT IF EXISTS chk_transactions_type_valid;
+        ALTER TABLE transactions ADD CONSTRAINT chk_transactions_type_valid
+            CHECK (type IN ('Deposit', 'Withdrawal', 'Investment', 'Profit', 'ReferralBonus', 'ManualAdjustment', 'Cashback', 'InsuranceFee'));
+    END IF;
+END $$;
+
+-- Index for insurance fund queries
+CREATE INDEX IF NOT EXISTS idx_transactions_insurance ON transactions (type) WHERE type = 'InsuranceFee';
+
+-- Index for daily withdrawal limit queries
+CREATE INDEX IF NOT EXISTS idx_transactions_withdrawal_daily ON transactions (type, status, created_at)
+    WHERE type = 'Withdrawal' AND status IN ('Completed', 'Pending');

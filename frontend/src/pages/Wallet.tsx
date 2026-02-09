@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Wallet, ArrowDownLeft, ArrowUpRight, DollarSign, X, CheckCircle2, TrendingUp, TrendingDown, Clock, Zap, Target, Receipt, AlertTriangle, Timer, Bolt, Users, Lock, ShieldCheck } from 'lucide-react';
 import { userApi } from '../lib/api';
-import type { Dashboard, Transaction, WithdrawalInfo, ReferralQualification } from '../lib/api';
+import type { Dashboard, Transaction, WithdrawalInfo, ReferralQualification, WithdrawalLimits } from '../lib/api';
 import SlotMachineCounter from '../components/SlotMachineCounter';
 import { useSounds } from '../hooks/useSounds';
 import { useToast } from '../lib/toast';
@@ -122,12 +122,17 @@ function WithdrawModal({ onClose, onSuccess, balance, refQual }: { onClose: () =
   const [resultStatus, setResultStatus] = useState('');
   const [error, setError] = useState('');
   const [wdInfo, setWdInfo] = useState<WithdrawalInfo | null>(null);
+  const [wdLimits, setWdLimits] = useState<WithdrawalLimits | null>(null);
   const { playSuccess } = useSounds();
   const toast = useToast();
 
   const isBlocked = refQual !== null && !refQual.qualified;
+  const isCooling = wdLimits !== null && !wdLimits.coolingPeriod.allowed;
 
-  useEffect(() => { userApi.getWithdrawalInfo().then(setWdInfo).catch(() => {}); }, []);
+  useEffect(() => {
+    userApi.getWithdrawalInfo().then(setWdInfo).catch(() => {});
+    userApi.getWithdrawalLimits().then(setWdLimits).catch(() => {});
+  }, []);
 
   const num = parseFloat(amount) || 0;
   const feeRate = wdInfo ? wdInfo.feeRate * (1 - wdInfo.feeDiscount) : 0.07;
@@ -221,8 +226,47 @@ function WithdrawModal({ onClose, onSuccess, balance, refQual }: { onClose: () =
               </motion.div>
             )}
 
+            {/* Cooling Period Warning */}
+            {isCooling && wdLimits && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 p-3 rounded-xl bg-blue-500/5 border border-blue-500/15"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Timer className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm font-semibold text-blue-400">Cooling Period</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {wdLimits.coolingPeriod.hoursRemaining}h remaining. Withdrawals unlock at{' '}
+                  {wdLimits.coolingPeriod.unlocksAt ? new Date(wdLimits.coolingPeriod.unlocksAt).toLocaleString() : 'soon'}.
+                </p>
+              </motion.div>
+            )}
+
+            {/* Daily Limits Info */}
+            {wdLimits && !isBlocked && !isCooling && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mb-4 p-3 rounded-xl bg-white/[0.02] border border-white/5"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Your daily limit</span>
+                  <span className="text-gray-300 font-mono">${wdLimits.dailyLimits.personalRemaining.toFixed(0)} / ${wdLimits.dailyLimits.personalLimit.toFixed(0)}</span>
+                </div>
+                <div className="mt-1.5 h-1 rounded-full bg-white/5 overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, (wdLimits.dailyLimits.personalUsedToday / wdLimits.dailyLimits.personalLimit) * 100)}%` }}
+                    className="h-full rounded-full bg-gradient-to-r from-[#00ff88] to-primary-500"
+                  />
+                </div>
+              </motion.div>
+            )}
+
             {/* Mode Toggle */}
-            <div className={`grid grid-cols-2 gap-2 mb-5 ${isBlocked ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div className={`grid grid-cols-2 gap-2 mb-5 ${isBlocked || isCooling ? 'opacity-50 pointer-events-none' : ''}`}>
               {[
                 { instant: false, icon: Timer, label: 'Regular', sub: '0% fee · 1-3 days', activeColor: 'border-[#00ff88]/40 bg-[#00ff88]/8', textColor: 'text-[#00ff88]' },
                 { instant: true, icon: Bolt, label: 'Instant', sub: `${(feeRate * 100).toFixed(0)}% fee · Immediate`, activeColor: 'border-amber-400/40 bg-amber-400/8', textColor: 'text-amber-400' },
@@ -288,21 +332,21 @@ function WithdrawModal({ onClose, onSuccess, balance, refQual }: { onClose: () =
             </AnimatePresence>
 
             <motion.button
-              whileHover={!isBlocked ? { scale: 1.02, y: -1 } : {}}
-              whileTap={!isBlocked ? { scale: 0.98 } : {}}
+              whileHover={!(isBlocked || isCooling) ? { scale: 1.02, y: -1 } : {}}
+              whileTap={!(isBlocked || isCooling) ? { scale: 0.98 } : {}}
               onClick={handleWithdraw}
-              disabled={loading || !amount || isBlocked}
+              disabled={loading || !amount || isBlocked || isCooling}
               className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 ${
-                isBlocked
+                isBlocked || isCooling
                   ? 'bg-gray-600 cursor-not-allowed'
                   : isInstant
                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:shadow-[0_0_30px_rgba(245,158,11,0.25)]'
                     : 'bg-gradient-to-r from-[#ff3366] to-pink-600 hover:shadow-[0_0_30px_rgba(255,51,102,0.3)]'
               }`}
             >
-              {isBlocked ? <><Lock className="w-5 h-5" />Locked — Need Referrals</> : loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : isInstant ? <><Bolt className="w-5 h-5" />Instant Withdraw</> : <><ArrowUpRight className="w-5 h-5" />Submit Withdrawal</>}
+              {isBlocked ? <><Lock className="w-5 h-5" />Locked — Need Referrals</> : isCooling ? <><Timer className="w-5 h-5" />Cooling — {wdLimits?.coolingPeriod.hoursRemaining}h left</> : loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : isInstant ? <><Bolt className="w-5 h-5" />Instant Withdraw</> : <><ArrowUpRight className="w-5 h-5" />Submit Withdrawal</>}
             </motion.button>
-            <p className="text-xs text-gray-600 text-center mt-3">{isBlocked ? 'Invite active referrals to unlock withdrawals' : isInstant ? 'Instant processing with fee' : 'Queued for admin approval · No fees'}</p>
+            <p className="text-xs text-gray-600 text-center mt-3">{isBlocked ? 'Invite active referrals to unlock withdrawals' : isCooling ? 'Wait for the cooling period to end after your last deposit' : isInstant ? 'Instant processing with fee' : 'Queued for admin approval · No fees'}</p>
           </>
         )}
       </motion.div>

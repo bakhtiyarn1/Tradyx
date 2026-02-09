@@ -16,6 +16,7 @@ public class InvestmentService : IInvestmentService
     private readonly TransactionRepository _transactionRepository;
     private readonly NotificationRepository _notificationRepository;
     private readonly IRankService _rankService;
+    private readonly ITreasuryService _treasuryService;
     private readonly IRealtimeNotifier _realtime;
     private readonly ITelegramNotifier _telegram;
     private readonly ILogger<InvestmentService> _logger;
@@ -29,6 +30,7 @@ public class InvestmentService : IInvestmentService
         TransactionRepository transactionRepository,
         NotificationRepository notificationRepository,
         IRankService rankService,
+        ITreasuryService treasuryService,
         IRealtimeNotifier realtime,
         ITelegramNotifier telegram,
         IConfiguration configuration,
@@ -39,6 +41,7 @@ public class InvestmentService : IInvestmentService
         _transactionRepository = transactionRepository;
         _notificationRepository = notificationRepository;
         _rankService = rankService;
+        _treasuryService = treasuryService;
         _realtime = realtime;
         _telegram = telegram;
         _logger = logger;
@@ -78,6 +81,19 @@ public class InvestmentService : IInvestmentService
         if (plan == null)
             return InvestmentResponse.Fail($"No investment plan found for ${amount:F2}. Check available plans.");
 
+        // === DYNAMIC RATE: apply treasury health multiplier ===
+        decimal rateMultiplier;
+        try
+        {
+            rateMultiplier = await _treasuryService.GetRateMultiplierAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Investment] Failed to get rate multiplier, using 1.0");
+            rateMultiplier = 1.0m;
+        }
+        var effectiveRate = Math.Round(plan.DailyRate * rateMultiplier, 6);
+
         using var transaction = connection.BeginTransaction();
 
         try
@@ -94,13 +110,13 @@ public class InvestmentService : IInvestmentService
                 "UPDATE users SET balance = balance - @Amount WHERE id = @UserId",
                 new { Amount = amount, UserId = userId }, transaction);
 
-            // Create investment using plan duration
+            // Create investment using plan duration + dynamic rate
             var investment = new Investment
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Amount = amount,
-                DailyRate = plan.DailyRate,
+                DailyRate = effectiveRate,
                 CreatedAt = DateTime.UtcNow,
                 NextPayoutAt = DateTime.UtcNow.AddMinutes(2),
                 IsActive = true,
@@ -108,14 +124,18 @@ public class InvestmentService : IInvestmentService
             };
             await _investmentRepository.AddAsync(investment, connection, transaction);
 
+            var rateLabel = rateMultiplier < 1.0m
+                ? $" [adjusted ×{rateMultiplier:F2}]"
+                : "";
+
             // Transaction record
             var tx = Transaction.Create(userId, -amount, Transaction.Types.Investment,
-                $"Investment ${amount:F2} — {plan.Name} ({plan.DailyRate * 100:F1}%/day, {plan.DurationDays}d)");
+                $"Investment ${amount:F2} — {plan.Name} ({effectiveRate * 100:F2}%/day, {plan.DurationDays}d{rateLabel})");
             await _transactionRepository.AddAsync(tx, connection, transaction);
 
             // Notification
             var notif = Notification.Create(userId,
-                $"🎯 Инвестиция ${amount:F2} активирована! План: {plan.Name}, ставка: {plan.DailyRate * 100:F1}%/день, {plan.DurationDays} дней.");
+                $"🎯 Инвестиция ${amount:F2} активирована! План: {plan.Name}, ставка: {effectiveRate * 100:F2}%/день, {plan.DurationDays} дней.");
             await _notificationRepository.AddAsync(notif, connection, transaction);
 
             // === Update turnovers (personal + team ancestors) ===
@@ -147,12 +167,13 @@ public class InvestmentService : IInvestmentService
             }
 
             transaction.Commit();
-            _logger.LogInformation("[Investment] User {UserId} invested ${Amount} in plan {Plan} at {Rate}%",
-                userId, amount, plan.Name, plan.DailyRate * 100);
+            _logger.LogInformation("[Investment] User {UserId} invested ${Amount} in plan {Plan} at {Rate}% (multiplier={Mult})",
+                userId, amount, plan.Name, effectiveRate * 100, rateMultiplier);
 
             // Telegram notification
+            var rateNote = rateMultiplier < 1.0m ? $"\n⚠️ Rate adjusted ×{rateMultiplier:F2} (treasury health)" : "";
             _ = _telegram.NotifyAsync(
-                $"📈 <b>Новая инвестиция</b>\nПлан: {plan.Name}\nСумма: <b>${amount:F2}</b>\nСтавка: {plan.DailyRate * 100:F1}%/день\nДоход/день: ${amount * plan.DailyRate:F2}");
+                $"📈 <b>Новая инвестиция</b>\nПлан: {plan.Name}\nСумма: <b>${amount:F2}</b>\nСтавка: {effectiveRate * 100:F2}%/день\nДоход/день: ${amount * effectiveRate:F2}{rateNote}");
 
             // Check rank upgrade after commit (fire-and-forget)
             _ = Task.Run(async () =>
@@ -161,7 +182,7 @@ public class InvestmentService : IInvestmentService
                 catch (Exception ex) { _logger.LogWarning(ex, "[Investment] Rank check failed for {UserId}", userId); }
             });
 
-            return InvestmentResponse.Ok(investment.Id, amount, plan.DailyRate, investment.CreatedAt, investment.NextPayoutAt, investment.RemainingPayouts);
+            return InvestmentResponse.Ok(investment.Id, amount, effectiveRate, investment.CreatedAt, investment.NextPayoutAt, investment.RemainingPayouts);
         }
         catch (Exception ex)
         {

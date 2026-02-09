@@ -14,4 +14,7 @@ public interface IUserRepository
     Task<bool> LinkTelegramAsync(Guid userId, long telegramId, CancellationToken cancellationToken = default);
     Task<UserDashboardResponse?> GetDashboardAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<bool> DepositAsync(Guid userId, decimal amount, CancellationToken cancellationToken = default);
+    Task<DepositResult> DepositWithInsuranceAsync(Guid userId, decimal grossAmount, ITreasuryService treasuryService, CancellationToken cancellationToken = default);
 }
+
+public record DepositResult(bool Success, string? Error = null, decimal NetAmount = 0, decimal InsuranceFee = 0);

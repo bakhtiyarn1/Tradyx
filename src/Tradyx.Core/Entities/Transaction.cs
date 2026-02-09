@@ -22,6 +22,7 @@ public class Transaction
         public const string ReferralBonus = "ReferralBonus";
         public const string ManualAdjustment = "ManualAdjustment";
         public const string Cashback = "Cashback";
+        public const string InsuranceFee = "InsuranceFee";
     }
 
     public static class Statuses

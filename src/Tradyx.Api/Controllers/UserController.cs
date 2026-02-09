@@ -18,6 +18,7 @@ public class UserController : ControllerBase
     private readonly IReferralService _referralService;
     private readonly IRankService _rankService;
     private readonly IWithdrawalService _withdrawalService;
+    private readonly ITreasuryService _treasuryService;
     private readonly IRealtimeNotifier _realtime;
     private readonly ITelegramNotifier _telegram;
     private readonly ILogger<UserController> _logger;
@@ -29,6 +30,7 @@ public class UserController : ControllerBase
         IReferralService referralService,
         IRankService rankService,
         IWithdrawalService withdrawalService,
+        ITreasuryService treasuryService,
         IRealtimeNotifier realtime,
         ITelegramNotifier telegram,
         ILogger<UserController> logger)
@@ -39,6 +41,7 @@ public class UserController : ControllerBase
         _referralService = referralService;
         _rankService = rankService;
         _withdrawalService = withdrawalService;
+        _treasuryService = treasuryService;
         _realtime = realtime;
         _telegram = telegram;
         _logger = logger;
@@ -205,12 +208,16 @@ public class UserController : ControllerBase
 
         try
         {
-            var success = await _userRepository.DepositAsync(userId.Value, request.Amount, cancellationToken);
-            if (!success) return BadRequest(new { Message = "Deposit failed — user not found" });
+            // DepositAsync now handles insurance deduction internally
+            var success = await _userRepository.DepositWithInsuranceAsync(
+                userId.Value, request.Amount, _treasuryService, cancellationToken);
+            if (!success.Success) return BadRequest(new { Message = success.Error ?? "Deposit failed — user not found" });
 
-            _logger.LogInformation("[Deposit] User {UserId} deposited ${Amount:F2}", userId, request.Amount);
+            _logger.LogInformation("[Deposit] User {UserId} deposited ${Gross:F2} (net ${Net:F2}, insurance ${Fee:F2})",
+                userId, request.Amount, success.NetAmount, success.InsuranceFee);
 
             // Real-time: push new balance + events to connected client
+            var grossAmount = request.Amount;
             _ = Task.Run(async () =>
             {
                 try
@@ -219,21 +226,28 @@ public class UserController : ControllerBase
                     if (user != null)
                     {
                         await _realtime.NotifyBalanceUpdated(userId.Value, user.Balance);
-                        await _realtime.NotifyTransactionCreated(userId.Value, "Deposit", request.Amount);
-                        await _realtime.NotifyNewNotification(userId.Value, $"💳 Deposit ${request.Amount:F2} credited");
+                        await _realtime.NotifyTransactionCreated(userId.Value, "Deposit", grossAmount);
+                        await _realtime.NotifyNewNotification(userId.Value, $"💳 Deposit ${grossAmount:F2} credited (${success.InsuranceFee:F2} → insurance fund)");
 
                         // Telegram admin notification
                         await _telegram.NotifyAsync(
                             $"💳 <b>Новый депозит</b>\n\n" +
                             $"👤 Пользователь: <code>{user.Username}</code>\n" +
-                            $"💰 Сумма: <b>+${request.Amount:F2}</b>\n" +
+                            $"💰 Сумма: <b>+${grossAmount:F2}</b>\n" +
+                            $"🛡 Страховой фонд: <b>${success.InsuranceFee:F2}</b>\n" +
                             $"💼 Баланс: <b>${user.Balance:F2}</b>");
                     }
                 }
                 catch { /* non-critical — don't fail the HTTP response */ }
             });
 
-            return Ok(new { Message = $"Successfully deposited ${request.Amount:F2}", Amount = request.Amount });
+            return Ok(new
+            {
+                Message = $"Successfully deposited ${request.Amount:F2} (${success.InsuranceFee:F2} allocated to insurance fund)",
+                Amount = request.Amount,
+                NetAmount = success.NetAmount,
+                InsuranceFee = success.InsuranceFee
+            });
         }
         catch (Exception ex)
         {
@@ -257,6 +271,16 @@ public class UserController : ControllerBase
 
         try
         {
+            // === COOLING PERIOD CHECK ===
+            var cooling = await _treasuryService.CheckCoolingPeriodAsync(userId.Value, cancellationToken);
+            if (!cooling.Allowed)
+                return BadRequest(new { Message = cooling.Error, CoolingHoursLeft = cooling.HoursRemaining, CoolingUnlocksAt = cooling.UnlocksAt });
+
+            // === DAILY LIMIT CHECK (platform + personal) ===
+            var limitCheck = await _treasuryService.CheckDailyWithdrawalLimitAsync(userId.Value, request.Amount, cancellationToken);
+            if (!limitCheck.Allowed)
+                return BadRequest(new { Message = limitCheck.Error, PlatformUsedToday = limitCheck.PlatformUsedToday, PersonalLimit = limitCheck.PersonalLimit });
+
             var result = await _withdrawalService.RequestWithdrawalAsync(
                 userId.Value, request.Amount, request.IsInstant, request.WalletAddress, cancellationToken);
 
@@ -302,6 +326,47 @@ public class UserController : ControllerBase
         {
             _logger.LogError(ex, "[Withdraw] Error getting withdrawal info for {UserId}", userId);
             return StatusCode(500, new { Message = "Failed to load withdrawal info" });
+        }
+    }
+
+    [HttpGet("me/withdrawal-limits")]
+    public async Task<IActionResult> GetWithdrawalLimits(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized(new { Message = "Invalid token" });
+
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+            if (user == null) return NotFound(new { Message = "User not found" });
+
+            var cooling = await _treasuryService.CheckCoolingPeriodAsync(userId.Value, cancellationToken);
+            var dailyLimit = await _treasuryService.CheckDailyWithdrawalLimitAsync(userId.Value, 0, cancellationToken);
+            var personalLimit = _treasuryService.GetPersonalDailyLimit(user.Status);
+
+            return Ok(new
+            {
+                CoolingPeriod = new
+                {
+                    cooling.Allowed,
+                    cooling.HoursRemaining,
+                    cooling.UnlocksAt
+                },
+                DailyLimits = new
+                {
+                    PersonalLimit = personalLimit,
+                    PersonalUsedToday = dailyLimit.PersonalUsedToday,
+                    PersonalRemaining = Math.Max(0, personalLimit - dailyLimit.PersonalUsedToday),
+                    PlatformUsedToday = dailyLimit.PlatformUsedToday,
+                    PlatformLimit = dailyLimit.PlatformLimit,
+                    PlatformRemaining = Math.Max(0, dailyLimit.PlatformLimit - dailyLimit.PlatformUsedToday)
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[User] Error getting withdrawal limits for {UserId}", userId);
+            return StatusCode(500, new { Message = "Failed to load withdrawal limits" });
         }
     }
 

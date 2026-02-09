@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import {
   adminApi, type AdminStats, type AdminUser, type UserFullDetails,
-  type AdminInvestmentPlan, type AdminAnalytics
+  type AdminInvestmentPlan, type AdminAnalytics, type TreasuryHealth
 } from '../lib/api';
 import { useSounds } from '../hooks/useSounds';
 import SlotMachineCounter from '../components/SlotMachineCounter';
@@ -427,6 +427,7 @@ export default function AdminPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [plans, setPlans] = useState<AdminInvestmentPlan[]>([]);
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
+  const [treasury, setTreasury] = useState<TreasuryHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -435,8 +436,8 @@ export default function AdminPanel() {
 
   const loadCore = useCallback(async () => {
     try {
-      const [s, u] = await Promise.all([adminApi.getStats(), adminApi.getUsers()]);
-      setStats(s); setUsers(u);
+      const [s, u, t] = await Promise.all([adminApi.getStats(), adminApi.getUsers(), adminApi.getTreasury()]);
+      setStats(s); setUsers(u); setTreasury(t);
     } catch { } finally { setLoading(false); }
   }, []);
 
@@ -517,6 +518,83 @@ export default function AdminPanel() {
                 <StatCard icon={TrendingUp} label="Profit Paid" value={stats?.totalProfitPaid || 0} delta={8.5} />
                 <StatCard icon={Wallet} label="System Reserve" value={stats?.systemReserve || 0} />
               </div>
+
+              {/* Treasury Health Panel */}
+              {treasury && (
+                <div className={`glass-admin p-6 border-l-4 ${
+                  treasury.zone === 'green' ? 'border-l-[#00ff88]'
+                  : treasury.zone === 'yellow' ? 'border-l-amber-400'
+                  : 'border-l-[#ff3366]'
+                }`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-semibold flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-[#00d4ff]" />Treasury Health
+                    </h3>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                      treasury.zone === 'green' ? 'bg-[#00ff88]/15 text-[#00ff88]'
+                      : treasury.zone === 'yellow' ? 'bg-amber-400/15 text-amber-400'
+                      : 'bg-[#ff3366]/15 text-[#ff3366]'
+                    }`}>
+                      {treasury.zone} zone
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <div className="glass p-3">
+                      <p className="text-xs text-gray-500 mb-1">Health Ratio</p>
+                      <p className={`text-lg font-bold font-mono ${
+                        treasury.healthRatio >= 0.5 ? 'text-[#00ff88]' : treasury.healthRatio >= 0.25 ? 'text-amber-400' : 'text-[#ff3366]'
+                      }`}>
+                        {(treasury.healthRatio * 100).toFixed(1)}%
+                      </p>
+                    </div>
+                    <div className="glass p-3">
+                      <p className="text-xs text-gray-500 mb-1">Insurance Fund</p>
+                      <p className="text-lg font-bold font-mono text-[#00d4ff]">${treasury.insuranceFund.toFixed(2)}</p>
+                    </div>
+                    <div className="glass p-3">
+                      <p className="text-xs text-gray-500 mb-1">Rate Multiplier</p>
+                      <p className={`text-lg font-bold font-mono ${treasury.rateMultiplier < 1 ? 'text-amber-400' : 'text-white'}`}>
+                        ×{treasury.rateMultiplier.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="glass p-3">
+                      <p className="text-xs text-gray-500 mb-1">Runway</p>
+                      <p className={`text-lg font-bold font-mono ${
+                        treasury.estimatedRunwayDays > 90 ? 'text-[#00ff88]' : treasury.estimatedRunwayDays > 30 ? 'text-amber-400' : 'text-[#ff3366]'
+                      }`}>
+                        {treasury.estimatedRunwayDays > 365 ? '365+' : treasury.estimatedRunwayDays}d
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-4">
+                      <span className="text-gray-500">Withdrawn today: <span className="text-white font-mono">${treasury.withdrawnToday.toFixed(2)}</span></span>
+                      <span className="text-gray-500">Daily limit: <span className="text-white font-mono">${treasury.dailyWithdrawalLimit.toFixed(2)}</span></span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-gray-500">Total deposits: <span className="text-[#00ff88] font-mono">${treasury.totalDeposits.toFixed(2)}</span></span>
+                      <span className="text-gray-500">Total payouts: <span className="text-[#ff3366] font-mono">${treasury.totalPayouts.toFixed(2)}</span></span>
+                    </div>
+                  </div>
+
+                  {/* Health bar */}
+                  <div className="mt-3 h-2 rounded-full bg-white/5 overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, treasury.healthRatio * 100)}%` }}
+                      transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                      className={`h-full rounded-full ${
+                        treasury.zone === 'green' ? 'bg-gradient-to-r from-[#00ff88] to-primary-500'
+                        : treasury.zone === 'yellow' ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                        : 'bg-gradient-to-r from-[#ff3366] to-red-500'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Quick Plan Summary */}
               {plans.length > 0 && (
                 <div className="glass-admin p-6">

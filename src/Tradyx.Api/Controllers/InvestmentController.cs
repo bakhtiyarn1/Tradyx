@@ -14,17 +14,20 @@ public class InvestmentController : ControllerBase
 {
     private readonly IInvestmentService _investmentService;
     private readonly IUserRepository _userRepository;
+    private readonly ITreasuryService _treasuryService;
     private readonly IRealtimeNotifier _realtime;
     private readonly ILogger<InvestmentController> _logger;
 
     public InvestmentController(
         IInvestmentService investmentService,
         IUserRepository userRepository,
+        ITreasuryService treasuryService,
         IRealtimeNotifier realtime,
         ILogger<InvestmentController> logger)
     {
         _investmentService = investmentService;
         _userRepository = userRepository;
+        _treasuryService = treasuryService;
         _realtime = realtime;
         _logger = logger;
     }
@@ -87,7 +90,7 @@ public class InvestmentController : ControllerBase
         }
     }
 
-    /// <summary>Returns all active investment plans from the database.</summary>
+    /// <summary>Returns all active investment plans from the database, with current rate multiplier.</summary>
     [HttpGet("plans")]
     [AllowAnonymous]
     public async Task<IActionResult> GetPlans(CancellationToken cancellationToken)
@@ -95,7 +98,13 @@ public class InvestmentController : ControllerBase
         try
         {
             var plans = await _investmentService.GetActivePlansAsync(cancellationToken);
-            return Ok(plans);
+
+            // Get current treasury rate multiplier
+            decimal rateMultiplier = 1.0m;
+            try { rateMultiplier = await _treasuryService.GetRateMultiplierAsync(cancellationToken); }
+            catch { /* fallback to 1.0 */ }
+
+            return Ok(new { plans, rateMultiplier });
         }
         catch (Exception ex)
         {
